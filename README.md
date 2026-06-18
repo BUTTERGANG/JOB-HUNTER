@@ -12,6 +12,7 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 - **Discord notifications** — Get alerted in a Discord channel when scheduled scrapes find jobs above your score threshold
 - **Cross-run deduplication** — Same listing won't be analyzed or alerted on twice
 - **Import duplicate protection** — Can't accidentally add the same job to tracking twice
+- **Market Analysis dashboard** — Visual breakdown of all scraped jobs: sectors, salary distribution, remote vs onsite, top companies, posting timeline, and more
 - **Salary targeting** — Set minimum/target/stretch salaries; benchmark against BLS data
 - **Master resume** — Store your resume once; use it when tailoring applications
 
@@ -23,6 +24,7 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 - **AI:** Anthropic Claude API (`@anthropic-ai/sdk`)
 - **Scraping:** `python-jobspy` (Python subprocess)
 - **Tables:** `react-table` / shadcn Table
+- **Charts:** `recharts`
 - **CSV parsing:** `papaparse`
 - **Notifications:** Discord webhooks (native `fetch`)
 
@@ -79,6 +81,7 @@ job-hunt-app/
 │   │   │   └── settings/        # App settings (key/value)
 │   │   ├── jobs/                # Job tracking, compare, detail pages
 │   │   ├── scrape/              # Scraping UI (new + history)
+│   │   ├── analysis/            # Market Analysis dashboard
 │   │   └── settings/            # Settings page
 │   ├── components/              # Shared UI (sidebar, etc.)
 │   └── lib/
@@ -86,7 +89,8 @@ job-hunt-app/
 │       ├── db/                  # SQLite schema, queries, migrations
 │       ├── notifications/       # Discord embed formatting
 │       ├── scrapeRunner.py      # Orchestrates scrape → analyze → save
-│       └── jobIdentity.ts       # URL/text normalization & dedupe keys
+│       ├── jobIdentity.ts       # URL/text normalization & dedupe keys
+│       └── socSectors.ts        # SOC major group → sector name mapping
 ├── scripts/
 │   └── scrape_jobs.py           # Python jobspy wrapper
 └── data/                        # SQLite database (gitignored)
@@ -110,6 +114,7 @@ job-hunt-app/
 | `/api/jobs/[id]/resume` | POST | Generate tailored resume bullets |
 | `/api/settings` | GET/PUT | Read/write settings |
 | `/api/notifications/discord/test` | POST | Send a test Discord message |
+| `/api/analysis/market` | GET | Aggregated market analysis data (deduped by URL) |
 
 ## Discord Notifications
 
@@ -126,6 +131,30 @@ Each Discord alert includes:
 - Total jobs found and how many met the threshold
 - Top jobs (up to max) with: score, company, title (linked), location, salary, source
 - A count of additional matches if there are more than the max
+
+## Market Analysis Dashboard
+
+Navigate to **/analysis** (or click **Market Analysis** in the sidebar) to see a visual breakdown of all scraped job data across every scrape run.
+
+### Data Aggregation & Deduplication
+
+The `/api/analysis/market` endpoint:
+1. Pulls every `scrape_result` + its `job_analysis` across all scrape runs
+2. **Deduplicates by normalized job URL** — if the same listing appears in multiple runs, only the most recent analysis is kept
+3. Buckets and aggregates the unique set into charts
+
+Filter controls at the top of the page let you narrow by **source**, **minimum score**, and **date range**.
+
+### Dashboard Tabs
+
+- **Overview** — Summary cards (total unique jobs, avg score, avg salary, % remote) + pie charts for job sectors (SOC groups), job types, degree requirements, and remote vs onsite
+- **Salary** — Salary distribution bar chart, salary by sector comparison, remote vs onsite salary
+- **Demand** — Top companies hiring, job board source breakdown, experience requirements, location breakdown
+- **Timeline** — Weekly posting volume line chart + cumulative unique listings over time
+
+### SOC Sector Mapping
+
+Jobs are classified by SOC code (from AI analysis) into 23 major groups (e.g. `15-` → "Computer & Mathematical", `11-` → "Management"). Unclassified or missing SOC codes appear under "Other / Unclassified".
 
 ## Scrape Deduplication
 

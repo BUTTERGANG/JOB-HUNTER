@@ -49,6 +49,13 @@ next-env.d.ts
 # local dev / agent artifacts
 .claude/
 .claire/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Screenshots (audit artifacts)
 *.png
 *.jpg
 *.jpeg

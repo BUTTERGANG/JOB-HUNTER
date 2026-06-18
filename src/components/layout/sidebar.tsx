@@ -11,6 +11,7 @@ const navItems = [
   { href: "/jobs/new", label: "Add Job", icon: PlusCircleIcon },
   { href: "/jobs/compare", label: "Compare", icon: CompareIcon },
   { href: "/scrape", label: "Scrape", icon: ScrapeIcon },
+  { href: "/analysis", label: "Market Analysis", icon: ChartPieIcon },
   { href: "/import", label: "Import CSV", icon: UploadIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -19,6 +20,7 @@ const mobileNav = [
   { href: "/", label: "Home", icon: LayoutDashboardIcon },
   { href: "/jobs", label: "Jobs", icon: BriefcaseIcon },
   { href: "/jobs/new", label: "Add", icon: PlusCircleIcon },
+  { href: "/analysis", label: "Market", icon: ChartPieIcon },
   { href: "/scrape", label: "Scrape", icon: ScrapeIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -215,6 +217,15 @@ function MoonIcon({ className }: { className?: string }) {
   return (
     <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+    </svg>
+  );
+}
+
+function ChartPieIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+      <path d="M22 12A10 10 0 0 0 12 2v10z" />
     </svg>
   );
 }
