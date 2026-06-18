@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import {
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { getSectorColor } from "@/lib/socSectors";
 
@@ -106,6 +106,68 @@ function ChartLegend({ items }: { items: { name: string; color: string; count: n
           <span className="font-medium">({item.count})</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── Chart Table (collapsible data table under each chart) ────────────────────
+
+interface ChartTableColumn {
+  key: string;
+  label: string;
+  align?: "left" | "right" | "center";
+  format?: (val: unknown) => string;
+}
+
+function ChartTable({ columns, data, title }: { columns: ChartTableColumn[]; data: Record<string, unknown>[]; title?: string }) {
+  const [open, setOpen] = useState(false);
+  if (data.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+      >
+        <span className={`transition-transform inline-block ${open ? "rotate-90" : ""}`}>▶</span>
+        {title ?? "Show data table"} ({data.length} rows)
+      </button>
+      {open && (
+        <div className="mt-2 border rounded-md overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b bg-muted/40">
+                {columns.map((col) => (
+                  <th
+                    key={col.key}
+                    className={`px-3 py-1.5 font-medium text-muted-foreground ${col.align === "right" ? "text-right" : "text-left"}`}
+                  >
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row, i) => (
+                <tr key={i} className="border-b last:border-0 hover:bg-muted/20">
+                  {columns.map((col) => {
+                    const val = row[col.key];
+                    const display = col.format ? col.format(val) : String(val ?? "—");
+                    return (
+                      <td
+                        key={col.key}
+                        className={`px-3 py-1 ${col.align === "right" ? "text-right font-mono" : ""}`}
+                      >
+                        {display}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -256,6 +318,14 @@ export default function AnalysisPage() {
                       </PieChart>
                     </ResponsiveContainer>
                     <ChartLegend items={data.sectorBreakdown.slice(0, 8).map((e) => ({ name: e.name, color: getSectorColor(e.name), count: e.count }))} />
+                    <ChartTable
+                      columns={[
+                        { key: "name", label: "Sector" },
+                        { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                        { key: "pct", label: "%", align: "right", format: (v) => `${v}%` },
+                      ]}
+                      data={data.sectorBreakdown}
+                    />
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-12">No SOC code data yet. Sectors appear after AI analysis.</p>
@@ -287,6 +357,14 @@ export default function AnalysisPage() {
                       </PieChart>
                     </ResponsiveContainer>
                     <ChartLegend items={data.jobTypeBreakdown.slice(0, 8).map((e, i) => ({ name: e.name, color: PIE_COLORS[i % PIE_COLORS.length], count: e.count }))} />
+                    <ChartTable
+                      columns={[
+                        { key: "name", label: "Job Type" },
+                        { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                        { key: "pct", label: "%", align: "right", format: (v) => `${v}%` },
+                      ]}
+                      data={data.jobTypeBreakdown}
+                    />
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-12">No job type data available.</p>
@@ -318,6 +396,14 @@ export default function AnalysisPage() {
                       </PieChart>
                     </ResponsiveContainer>
                     <ChartLegend items={data.degreeBreakdown.map((e, i) => ({ name: e.name, color: PIE_COLORS[i % PIE_COLORS.length], count: e.count }))} />
+                    <ChartTable
+                      columns={[
+                        { key: "name", label: "Degree" },
+                        { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                        { key: "pct", label: "%", align: "right", format: (v) => `${v}%` },
+                      ]}
+                      data={data.degreeBreakdown}
+                    />
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-12">No degree requirement data yet.</p>
@@ -349,6 +435,13 @@ export default function AnalysisPage() {
                   { name: "Remote", color: "#22c55e", count: data.remoteVsOnsite.remote },
                   { name: "On-site", color: "#6366f1", count: data.remoteVsOnsite.onsite },
                 ]} />
+                <ChartTable
+                  columns={[
+                    { key: "name", label: "Type" },
+                    { key: "value", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                  ]}
+                  data={remotePie}
+                />
               </CardContent>
             </Card>
           </div>
@@ -365,6 +458,14 @@ export default function AnalysisPage() {
                   </Badge>
                 ))}
               </div>
+              <ChartTable
+                columns={[
+                  { key: "name", label: "Location" },
+                  { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                  { key: "pct", label: "%", align: "right", format: (v) => `${v}%` },
+                ]}
+                data={data.locationBreakdown}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -377,18 +478,27 @@ export default function AnalysisPage() {
               <CardHeader className="pb-2"><CardTitle className="text-base">Salary Distribution (Estimated Min)</CardTitle></CardHeader>
               <CardContent>
                 {data.salaryDistribution.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={data.salaryDistribution}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="range" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                      <Tooltip
-                        contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(value) => [fmt(Number(value)), "Jobs"]}
-                      />
-                      <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={data.salaryDistribution}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="range" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <Tooltip
+                          contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
+                          formatter={(value) => [fmt(Number(value)), "Jobs"]}
+                        />
+                        <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <ChartTable
+                      columns={[
+                        { key: "range", label: "Salary Range" },
+                        { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                      ]}
+                      data={data.salaryDistribution}
+                    />
+                  </>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-12">No salary estimate data yet. Appears after AI analysis.</p>
                 )}
@@ -400,22 +510,31 @@ export default function AnalysisPage() {
               <CardHeader className="pb-2"><CardTitle className="text-base">Score Distribution</CardTitle></CardHeader>
               <CardContent>
                 {data.scoreDistribution.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={data.scoreDistribution}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis dataKey="range" tick={{ fontSize: 11 }} />
-                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                      <Tooltip
-                        contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(value) => [fmt(Number(value)), "Jobs"]}
-                      />
-                      <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                        {data.scoreDistribution.map((entry) => (
-                          <Cell key={entry.range} fill={SCORE_COLORS[entry.range] ?? "#94a3b8"} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={data.scoreDistribution}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="range" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <Tooltip
+                          contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
+                          formatter={(value) => [fmt(Number(value)), "Jobs"]}
+                        />
+                        <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                          {data.scoreDistribution.map((entry) => (
+                            <Cell key={entry.range} fill={SCORE_COLORS[entry.range] ?? "#94a3b8"} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <ChartTable
+                      columns={[
+                        { key: "range", label: "Score Range" },
+                        { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                      ]}
+                      data={data.scoreDistribution}
+                    />
+                  </>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-12">No score data yet.</p>
                 )}
@@ -428,14 +547,24 @@ export default function AnalysisPage() {
             <CardHeader className="pb-2"><CardTitle className="text-base">Most Common Benefits</CardTitle></CardHeader>
             <CardContent>
               {data.topBenefits.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {data.topBenefits.map((b) => (
-                    <Badge key={b.name} variant="secondary" className="text-xs px-3 py-1">
-                      {b.name}
-                      <span className="font-bold ml-1.5">{b.pct}%</span>
-                    </Badge>
-                  ))}
-                </div>
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {data.topBenefits.map((b) => (
+                      <Badge key={b.name} variant="secondary" className="text-xs px-3 py-1">
+                        {b.name}
+                        <span className="font-bold ml-1.5">{b.pct}%</span>
+                      </Badge>
+                    ))}
+                  </div>
+                  <ChartTable
+                    columns={[
+                      { key: "name", label: "Benefit" },
+                      { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                      { key: "pct", label: "%", align: "right", format: (v) => `${v}%` },
+                    ]}
+                    data={data.topBenefits}
+                  />
+                </>
               ) : (
                 <p className="text-sm text-muted-foreground">No benefit data yet.</p>
               )}
@@ -451,18 +580,27 @@ export default function AnalysisPage() {
               <CardHeader className="pb-2"><CardTitle className="text-base">Top Companies Hiring</CardTitle></CardHeader>
               <CardContent>
                 {data.topCompanies.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={350}>
-                    <BarChart data={data.topCompanies.slice(0, 12)} layout="vertical" margin={{ left: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
-                      <Tooltip
-                        contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(value) => [fmt(Number(value)), "Listings"]}
-                      />
-                      <Bar dataKey="count" fill="#06b6d4" radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <>
+                    <ResponsiveContainer width="100%" height={350}>
+                      <BarChart data={data.topCompanies.slice(0, 12)} layout="vertical" margin={{ left: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
+                        <Tooltip
+                          contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
+                          formatter={(value) => [fmt(Number(value)), "Listings"]}
+                        />
+                        <Bar dataKey="count" fill="#06b6d4" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <ChartTable
+                      columns={[
+                        { key: "name", label: "Company" },
+                        { key: "count", label: "Listings", align: "right", format: (v) => fmt(Number(v)) },
+                      ]}
+                      data={data.topCompanies.slice(0, 12)}
+                    />
+                  </>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-12">No company data yet.</p>
                 )}
@@ -493,6 +631,14 @@ export default function AnalysisPage() {
                       </PieChart>
                     </ResponsiveContainer>
                     <ChartLegend items={data.experienceBreakdown.map((e, i) => ({ name: e.name, color: PIE_COLORS[i % PIE_COLORS.length], count: e.count }))} />
+                    <ChartTable
+                      columns={[
+                        { key: "name", label: "Experience" },
+                        { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                        { key: "pct", label: "%", align: "right", format: (v) => `${v}%` },
+                      ]}
+                      data={data.experienceBreakdown}
+                    />
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-12">No experience data yet.</p>
@@ -513,6 +659,14 @@ export default function AnalysisPage() {
                   </Badge>
                 ))}
               </div>
+              <ChartTable
+                columns={[
+                  { key: "name", label: "Source" },
+                  { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                  { key: "pct", label: "%", align: "right", format: (v) => `${v}%` },
+                ]}
+                data={data.sourceBreakdown}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -523,30 +677,43 @@ export default function AnalysisPage() {
             <CardHeader className="pb-2"><CardTitle className="text-base">Job Postings Over Time</CardTitle></CardHeader>
             <CardContent>
               {data.postingsTimeline.length > 0 ? (
-                <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={data.postingsTimeline}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                    <XAxis
-                      dataKey="week"
-                      tick={{ fontSize: 10 }}
-                      tickFormatter={(v) => {
-                        const d = new Date(String(v));
-                        return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-                      }}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                    <Tooltip
-                      contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
-                      labelFormatter={(v) => {
+                <>
+                  <ResponsiveContainer width="100%" height={350}>
+                    <LineChart data={data.postingsTimeline}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis
+                        dataKey="week"
+                        tick={{ fontSize: 10 }}
+                        tickFormatter={(v) => {
+                          const d = new Date(String(v));
+                          return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                        }}
+                        interval="preserveStartEnd"
+                      />
+                      <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
+                        labelFormatter={(v) => {
+                          const d = new Date(String(v));
+                          return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+                        }}
+                        formatter={(value) => [fmt(Number(value)), "Postings"]}
+                      />
+                      <Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                  <ChartTable
+                    title="Show weekly breakdown"
+                    columns={[
+                      { key: "week", label: "Week", format: (v) => {
                         const d = new Date(String(v));
                         return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-                      }}
-                      formatter={(value) => [fmt(Number(value)), "Postings"]}
-                    />
-                    <Line type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2} dot={{ r: 3 }} />
-                  </LineChart>
-                </ResponsiveContainer>
+                      }},
+                      { key: "count", label: "Postings", align: "right", format: (v) => fmt(Number(v)) },
+                    ]}
+                    data={data.postingsTimeline}
+                  />
+                </>
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-12">No timeline data yet. Postings appear as scrapes collect date information.</p>
               )}

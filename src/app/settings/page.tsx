@@ -135,7 +135,7 @@ export default function SettingsPage() {
       target_salary_target: settings.target_salary_target,
       target_salary_stretch: settings.target_salary_stretch,
       masterResume: settings.masterResume,
-      schedule_searches: JSON.stringify(scheduleSearches.filter((s) => s.term.trim())),
+      schedule_searches: JSON.stringify(scheduleSearches.filter((s) => s.term.trim() || s.location.trim())),
       schedule_sites: JSON.stringify(scheduleSites),
       schedule_results: scheduleResults,
       schedule_hours: scheduleHours,
@@ -228,7 +228,7 @@ export default function SettingsPage() {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        schedule_searches: JSON.stringify(scheduleSearches.filter((s) => s.term.trim())),
+        schedule_searches: JSON.stringify(scheduleSearches.filter((s) => s.term.trim() || s.location.trim())),
         schedule_sites: JSON.stringify(scheduleSites),
         schedule_results: scheduleResults,
         schedule_hours: scheduleHours,
@@ -470,7 +470,7 @@ export default function SettingsPage() {
                 {scheduleSearches.map((s, i) => (
                   <div key={i} className="flex gap-2">
                     <Input
-                      placeholder="Search term (e.g. photographer)"
+                      placeholder="Search term (optional — blank = all jobs)"
                       value={s.term}
                       onChange={(e) => updateScheduleSearch(i, "term", e.target.value)}
                       className="flex-1"
@@ -556,7 +556,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <Button
                 onClick={runScheduledNow}
-                disabled={scheduleRunning || scheduleSearches.every((s) => !s.term.trim())}
+                disabled={scheduleRunning || scheduleSearches.every((s) => !s.term.trim() && !s.location.trim())}
                 variant="outline"
               >
                 {scheduleRunning ? "Running…" : "Run Now"}

@@ -133,6 +133,16 @@ const HOURS_OPTIONS = [
   { value: 720, label: "Last 30 days" },
 ];
 
+const US_STATES = [
+  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
+  "Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky",
+  "Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi",
+  "Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico",
+  "New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania",
+  "Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont",
+  "Virginia","Washington","West Virginia","Wisconsin","Wyoming","District of Columbia",
+];
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatSalary(min: number | null, max: number | null) {
@@ -895,6 +905,196 @@ function PastScrapes() {
   );
 }
 
+// ─── Bulk Market Scan ─────────────────────────────────────────────────────────
+
+function BulkMarketScan() {
+  const [bulkSites, setBulkSites] = useState<string[]>(["linkedin", "indeed", "google"]);
+  const [bulkResults, setBulkResults] = useState(100);
+  const [bulkHours, setBulkHours] = useState(168);
+  const [bulkTerm, setBulkTerm] = useState("");
+  const [phase, setPhase] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [progress, setProgress] = useState({ done: 0, total: 0, current: "" });
+  const [resultCount, setResultCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  function toggleBulkSite(id: string) {
+    setBulkSites((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  }
+
+  async function runBulkScan() {
+    setPhase("running");
+    setError(null);
+    setResultCount(0);
+    setProgress({ done: 0, total: US_STATES.length, current: US_STATES[0] });
+
+    // Split states into batches of 5 to show progress
+    const batchSize = 5;
+    let totalJobs = 0;
+
+    for (let i = 0; i < US_STATES.length; i += batchSize) {
+      const batch = US_STATES.slice(i, i + batchSize);
+      const searches = batch.map((state) => ({
+        term: bulkTerm.trim(),
+        location: state,
+      }));
+
+      setProgress({
+        done: i,
+        total: US_STATES.length,
+        current: batch.join(", "),
+      });
+
+      try {
+        const res = await fetch("/api/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            searches,
+            sites: bulkSites,
+            results: bulkResults,
+            hours: bulkHours,
+            skipAnalysis: true,
+          }),
+          signal: AbortSignal.timeout(120_000),
+        });
+        const data = await res.json();
+        if (res.ok && data.count) {
+          totalJobs += data.count;
+          setResultCount(totalJobs);
+        }
+      } catch (e) {
+        // Continue with next batch even if one fails
+        console.error(`Batch failed for ${batch.join(", ")}:`, e);
+      }
+    }
+
+    setProgress({ done: US_STATES.length, total: US_STATES.length, current: "Done" });
+    setPhase("done");
+  }
+
+  const canRun = phase !== "running" && bulkSites.length > 0;
+  const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Bulk Market Scan — All 50 States + DC</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <p className="text-sm text-muted-foreground">
+          Scrape jobs across all US states for market analytics. Skips AI analysis for speed.
+          Uses location-only or keyword + location searches with high result counts. Takes ~15–30 minutes.
+        </p>
+
+        {/* Search term */}
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">
+            Search term (optional — blank = all jobs in each state)
+          </label>
+          <Input
+            value={bulkTerm}
+            onChange={(e) => setBulkTerm(e.target.value)}
+            placeholder="e.g. software engineer (or leave blank for everything)"
+          />
+        </div>
+
+        {/* Sites */}
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Job Boards</label>
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+            {SITES.map((site) => (
+              <label key={site.id} className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={bulkSites.includes(site.id)}
+                  onChange={() => toggleBulkSite(site.id)}
+                  className="rounded border-gray-300"
+                />
+                <span className="text-sm">{site.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Options */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Results per site per state</label>
+            <Input
+              type="number"
+              min={10}
+              max={200}
+              value={bulkResults}
+              onChange={(e) => setBulkResults(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Posted within</label>
+            <Select value={String(bulkHours)} onValueChange={(v) => v && setBulkHours(Number(v))}>
+              <SelectTrigger>
+                <SelectValue>
+                  {HOURS_OPTIONS.find((o) => o.value === bulkHours)?.label ?? "Last 7 days"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {HOURS_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={String(opt.value)}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Run button */}
+        <div className="flex items-center gap-3">
+          <Button onClick={runBulkScan} disabled={!canRun} size="lg">
+            {phase === "running" ? "Scanning…" : "Run All States"}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {US_STATES.length} states × {bulkSites.length} sites × {bulkResults} results = up to{" "}
+            {US_STATES.length * bulkSites.length * bulkResults} listings
+          </span>
+        </div>
+
+        {/* Progress */}
+        {phase === "running" && (
+          <div className="space-y-2">
+            <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
+              <div
+                className="bg-primary h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>State batch {Math.ceil(progress.done / 5)} of {Math.ceil(progress.total / 5)}: {progress.current}</span>
+              <span>{pct}% · {resultCount} jobs saved so far</span>
+            </div>
+          </div>
+        )}
+
+        {/* Results */}
+        {phase === "done" && (
+          <div className={`p-3 rounded-md text-sm ${resultCount > 0 ? "bg-green-50 border border-green-200 text-green-800 dark:bg-green-950 dark:border-green-800 dark:text-green-300" : "bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300"}`}>
+            {resultCount > 0
+              ? `Done! ${resultCount} jobs saved across ${US_STATES.length} states. AI analysis was skipped — navigate to Market Analysis to see the data.`
+              : "Scan completed but no jobs were returned. Sites may have blocked the requests."}
+          </div>
+        )}
+
+        {phase === "error" && error && (
+          <div className="p-3 rounded-md bg-red-50 border border-red-200 dark:bg-red-950 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+            {error}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── New Scrape Tab ───────────────────────────────────────────────────────────
 
 function NewScrape() {
@@ -1043,7 +1243,7 @@ function NewScrape() {
   const canScrape =
     phase !== "scraping" &&
     sites.length > 0 &&
-    searches.some((s) => s.term.trim());
+    searches.some((s) => s.term.trim() || s.location.trim());
 
   return (
     <div className="space-y-4">
@@ -1055,7 +1255,7 @@ function NewScrape() {
           {searches.map((s, i) => (
             <div key={i} className="flex gap-2">
               <Input
-                placeholder="Search term (e.g. software engineer)"
+                placeholder="Search term (optional — leave blank for all jobs)"
                 value={s.term}
                 onChange={(e) => updateSearch(i, "term", e.target.value)}
                 className="flex-1"
@@ -1249,6 +1449,12 @@ export default function ScrapePage() {
   return (
     <div className="max-w-5xl">
       <h1 className="text-2xl font-bold mb-6">Scrape Jobs</h1>
+
+      {/* Bulk Market Scan — always visible at top */}
+      <div className="mb-6">
+        <BulkMarketScan />
+      </div>
+
       <Tabs defaultValue="new">
         <TabsList className="mb-6">
           <TabsTrigger value="new">New Scrape</TabsTrigger>

@@ -46,7 +46,10 @@ export interface ScrapeDedupeResult {
   outputCount: number;
 }
 
-export async function runScrapeAndAnalyze(config: ScrapeConfig): Promise<{
+export async function runScrapeAndAnalyze(
+  config: ScrapeConfig,
+  opts?: { timeoutMs?: number; skipAnalysis?: boolean }
+): Promise<{
   jobs: ScrapedJobWithAnalysis[];
   count: number;
   dedupe?: ScrapeDedupeResult;
@@ -56,12 +59,14 @@ export async function runScrapeAndAnalyze(config: ScrapeConfig): Promise<{
   const configPath = join(tmpdir(), `jobspy_config_${id}.json`);
   const outPath = join(tmpdir(), `jobspy_out_${id}.csv`);
   const scriptPath = resolve(process.cwd(), "scripts/scrape_jobs.py");
+  const timeoutMs = opts?.timeoutMs ?? 120_000;
+  const skipAnalysis = opts?.skipAnalysis ?? false;
 
   await writeFile(configPath, JSON.stringify(config));
 
   try {
     await exec("python3", [scriptPath, "--config", configPath, "--out", outPath], {
-      timeout: 120_000,
+      timeout: timeoutMs,
     });
   } catch (err: unknown) {
     await unlink(configPath).catch(() => {});
@@ -158,13 +163,15 @@ export async function runScrapeAndAnalyze(config: ScrapeConfig): Promise<{
   }
 
   let analyses: JobAnalysisResult[] = [];
-  const apiKey = getSetting("anthropic_api_key");
-  if (apiKey && jobs.length > 0 && resultIds.length === jobs.length) {
-    try {
-      analyses = await analyzeJobsBatch(jobs, apiKey);
-      saveJobAnalyses(resultIds, analyses);
-    } catch {
-      // Non-fatal — return jobs without analysis
+  if (!skipAnalysis) {
+    const apiKey = getSetting("anthropic_api_key");
+    if (apiKey && jobs.length > 0 && resultIds.length === jobs.length) {
+      try {
+        analyses = await analyzeJobsBatch(jobs, apiKey);
+        saveJobAnalyses(resultIds, analyses);
+      } catch {
+        // Non-fatal — return jobs without analysis
+      }
     }
   }
 
