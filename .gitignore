@@ -33,9 +33,22 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# database — local SQLite data + WAL/SHM files
+/data/
+*.db
+*.db-shm
+*.db-wal
+
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local dev / agent artifacts
+.claude/
+.claire/
+*.png
+*.jpg
+*.jpeg
