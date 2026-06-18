@@ -916,6 +916,8 @@ function BulkMarketScan() {
   const [progress, setProgress] = useState({ done: 0, total: 0, current: "" });
   const [resultCount, setResultCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [batchErrors, setBatchErrors] = useState<{ state: string; error: string }[]>([]);
+  const [showErrors, setShowErrors] = useState(false);
 
   function toggleBulkSite(id: string) {
     setBulkSites((prev) =>
@@ -928,22 +930,18 @@ function BulkMarketScan() {
     setError(null);
     setResultCount(0);
     setProgress({ done: 0, total: US_STATES.length, current: US_STATES[0] });
+    setBatchErrors([]);
 
-    // Split states into batches of 5 to show progress
-    const batchSize = 5;
+    // Run state-by-state for clearer error reporting and better resilience
     let totalJobs = 0;
+    const errors: { state: string; error: string }[] = [];
 
-    for (let i = 0; i < US_STATES.length; i += batchSize) {
-      const batch = US_STATES.slice(i, i + batchSize);
-      const searches = batch.map((state) => ({
-        term: bulkTerm.trim(),
-        location: state,
-      }));
-
+    for (let i = 0; i < US_STATES.length; i++) {
+      const state = US_STATES[i];
       setProgress({
         done: i,
         total: US_STATES.length,
-        current: batch.join(", "),
+        current: state,
       });
 
       try {
@@ -951,26 +949,41 @@ function BulkMarketScan() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            searches,
+            searches: [{ term: bulkTerm.trim(), location: state }],
             sites: bulkSites,
             results: bulkResults,
             hours: bulkHours,
             skipAnalysis: true,
+            skipDedupe: true,
           }),
-          signal: AbortSignal.timeout(120_000),
+          signal: AbortSignal.timeout(90_000),
         });
         const data = await res.json();
-        if (res.ok && data.count) {
-          totalJobs += data.count;
+        if (res.ok) {
+          const count = data.count ?? 0;
+          totalJobs += count;
           setResultCount(totalJobs);
+          // Report states that returned 0 jobs (with reason if available)
+          if (count === 0) {
+            const reason = data.dedupe
+              ? `0 of ${data.dedupe.inputCount} jobs were new (rest deduped or blocked)`
+              : "no results returned";
+            errors.push({ state, error: reason });
+            setBatchErrors([...errors]);
+          }
+        } else {
+          errors.push({ state, error: data.error ?? `HTTP ${res.status}` });
+          setBatchErrors([...errors]);
         }
       } catch (e) {
-        // Continue with next batch even if one fails
-        console.error(`Batch failed for ${batch.join(", ")}:`, e);
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push({ state, error: msg });
+        setBatchErrors([...errors]);
       }
     }
 
     setProgress({ done: US_STATES.length, total: US_STATES.length, current: "Done" });
+    setBatchErrors(errors);
     setPhase("done");
   }
 
@@ -1070,7 +1083,7 @@ function BulkMarketScan() {
               />
             </div>
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>State batch {Math.ceil(progress.done / 5)} of {Math.ceil(progress.total / 5)}: {progress.current}</span>
+              <span>State {progress.done + 1} of {progress.total}: {progress.current}</span>
               <span>{pct}% · {resultCount} jobs saved so far</span>
             </div>
           </div>
@@ -1078,10 +1091,38 @@ function BulkMarketScan() {
 
         {/* Results */}
         {phase === "done" && (
-          <div className={`p-3 rounded-md text-sm ${resultCount > 0 ? "bg-green-50 border border-green-200 text-green-800 dark:bg-green-950 dark:border-green-800 dark:text-green-300" : "bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300"}`}>
-            {resultCount > 0
-              ? `Done! ${resultCount} jobs saved across ${US_STATES.length} states. AI analysis was skipped — navigate to Market Analysis to see the data.`
-              : "Scan completed but no jobs were returned. Sites may have blocked the requests."}
+          <div className="space-y-3">
+            <div className={`p-3 rounded-md text-sm ${resultCount > 0 ? "bg-green-50 border border-green-200 text-green-800 dark:bg-green-950 dark:border-green-800 dark:text-green-300" : "bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300"}`}>
+              {resultCount > 0
+                ? `Done! ${resultCount} jobs saved across ${US_STATES.length} states. AI analysis was skipped — navigate to Market Analysis to see the data.`
+                : `Scan completed but no jobs were returned across ${US_STATES.length} states. See errors below for details.`}
+            </div>
+
+            {/* Per-state errors */}
+            {batchErrors.length > 0 && (
+              <div className="border rounded-md overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowErrors((v) => !v)}
+                  className="w-full flex items-center justify-between p-3 text-sm bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-950 transition-colors"
+                >
+                  <span className="font-medium text-red-700 dark:text-red-300">
+                    {batchErrors.length} state{batchErrors.length !== 1 ? "s" : ""} failed or returned no results
+                  </span>
+                  <span className="text-red-500 text-xs">{showErrors ? "Hide" : "Show"} details</span>
+                </button>
+                {showErrors && (
+                  <div className="max-h-48 overflow-y-auto divide-y">
+                    {batchErrors.map((e, i) => (
+                      <div key={i} className="px-3 py-1.5 text-xs flex justify-between gap-4 hover:bg-muted/30">
+                        <span className="font-medium shrink-0">{e.state}</span>
+                        <span className="text-red-600 dark:text-red-400 text-right truncate" title={e.error}>{e.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

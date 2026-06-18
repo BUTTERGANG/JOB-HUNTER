@@ -48,7 +48,7 @@ export interface ScrapeDedupeResult {
 
 export async function runScrapeAndAnalyze(
   config: ScrapeConfig,
-  opts?: { timeoutMs?: number; skipAnalysis?: boolean }
+  opts?: { timeoutMs?: number; skipAnalysis?: boolean; skipDedupe?: boolean }
 ): Promise<{
   jobs: ScrapedJobWithAnalysis[];
   count: number;
@@ -61,6 +61,7 @@ export async function runScrapeAndAnalyze(
   const scriptPath = resolve(process.cwd(), "scripts/scrape_jobs.py");
   const timeoutMs = opts?.timeoutMs ?? 120_000;
   const skipAnalysis = opts?.skipAnalysis ?? false;
+  const skipDedupe = opts?.skipDedupe ?? false;
 
   await writeFile(configPath, JSON.stringify(config));
 
@@ -116,7 +117,7 @@ export async function runScrapeAndAnalyze(
   };
 
   const seenThisRun = new Set<string>();
-  const previousKeys = getSetting("scrape_dedupe_enabled") === "false"
+  const previousKeys = skipDedupe || getSetting("scrape_dedupe_enabled") === "false"
     ? new Set<string>()
     : getExistingScrapeIdentityKeys();
 

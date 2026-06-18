@@ -3,7 +3,7 @@ import { runScrapeAndAnalyze } from "@/lib/scrapeRunner";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { searches, sites, results, hours, skipAnalysis } = body;
+  const { searches, sites, results, hours, skipAnalysis, skipDedupe } = body;
 
   // Large batch (e.g. all 50 states) gets a longer timeout
   const isLargeBatch = Array.isArray(searches) && searches.length > 10;
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   const { jobs, count, dedupe, error } = await runScrapeAndAnalyze(
     { searches, sites, results, hours },
-    { timeoutMs, skipAnalysis: skipAnalysis ?? false }
+    { timeoutMs, skipAnalysis: skipAnalysis ?? false, skipDedupe: skipDedupe ?? false }
   );
 
   if (error) {
