@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSetting, getMasterResume, saveTailoredResume, getAnalysis } from "@/lib/db/queries";
-import { ResumeStructure } from "@/lib/resumeTemplate";
 
 function parseJsonArray(value: string | null | undefined): string[] {
   if (!value) return [];
@@ -127,11 +126,11 @@ ${body.description}${intel}`;
   const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
 
   // Parse JSON response
-  let resumeJson: ResumeStructure;
+  let resumeJson: Record<string, unknown>;
   try {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : text;
-    resumeJson = JSON.parse(jsonStr) as ResumeStructure;
+    resumeJson = JSON.parse(jsonStr);
   } catch {
     // Fallback: return raw markdown if JSON parsing fails (backward compatible)
     if (body.jobId) {
