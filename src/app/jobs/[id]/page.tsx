@@ -39,6 +39,36 @@ interface Analysis {
   questions: string[];
 }
 
+interface ResumeStructure {
+  name: string;
+  tagline: string;
+  contact: {
+    email: string;
+    phone: string;
+    location: string;
+    linkedin?: string;
+    portfolio?: string;
+  };
+  professionalSummary: string;
+  coreCompetencies: {
+    technical: string[];
+    operations: string[];
+    leadership: string[];
+  };
+  professionalExperience: {
+    title: string;
+    company: string;
+    location: string;
+    startDate: string;
+    endDate: string;
+    bullets: string[];
+  }[];
+  technicalProficiencies: string[];
+  certifications: string[];
+}
+
+type TailoredResumeData = ResumeStructure | string;
+
 export default function JobDetailPage({
   params,
 }: {
@@ -49,13 +79,19 @@ export default function JobDetailPage({
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [tailoredResume, setTailoredResume] = useState("");
+  const [tailoredResume, setTailoredResume] = useState<TailoredResumeData>("");
+  const [isLegacyFormat, setIsLegacyFormat] = useState(false);
+  const [resumeDirty, setResumeDirty] = useState(false);
+  const [savingResume, setSavingResume] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [tailoring, setTailoring] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
+  const [fetchingDesc, setFetchingDesc] = useState(false);
+  const [fetchDescMsg, setFetchDescMsg] = useState<string | null>(null);
+  const [tailorError, setTailorError] = useState<{ message: string; needsResume: boolean } | null>(null);
 
   useEffect(() => {
     fetch(`/api/jobs/${id}`)
@@ -72,7 +108,25 @@ export default function JobDetailPage({
 
     fetch(`/api/jobs/${id}/resume`)
       .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data?.content) setTailoredResume(data.content); });
+      .then((data) => {
+        if (data?.content) {
+          const content = data.content;
+          setTailoredResume(content);
+          // Detect if legacy format
+          try {
+            if (typeof content === "string") {
+              // Check if it looks like JSON or markdown
+              const parsed = JSON.parse(content);
+              setIsLegacyFormat(!parsed.professionalSummary);
+            } else {
+              setIsLegacyFormat(!content.professionalSummary);
+            }
+          } catch {
+            setIsLegacyFormat(true);
+          }
+          setResumeDirty(false);
+        }
+      });
   }, [id]);
 
   if (error) {
@@ -179,9 +233,36 @@ export default function JobDetailPage({
     }
   }
 
+  async function fetchDescription() {
+    if (!job?.url) return;
+    setFetchingDesc(true);
+    setFetchDescMsg(null);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/fetch-description`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setJob((prev) =>
+          prev ? { ...prev, description: data.description, company: data.company ?? prev.company } : prev
+        );
+        setFetchDescMsg("✓ Description fetched from the posting.");
+      } else {
+        setFetchDescMsg(
+          data.needsManual
+            ? `${data.error} (Use Edit below to paste it.)`
+            : data.error || "Couldn't fetch the description."
+        );
+      }
+    } catch {
+      setFetchDescMsg("Couldn't reach the posting. Paste the description manually with Edit.");
+    } finally {
+      setFetchingDesc(false);
+    }
+  }
+
   async function tailorResume() {
     if (!job?.description) return;
     setTailoring(true);
+    setTailorError(null);
     try {
       const res = await fetch("/api/ai/tailor", {
         method: "POST",
@@ -190,9 +271,18 @@ export default function JobDetailPage({
       });
       const data = await res.json();
       if (res.ok) {
-        setTailoredResume(data.content);
+        const content = data.content;
+        setTailoredResume(content);
+        // Check if this is legacy markdown format
+        if (typeof content === "string" || data.isLegacy) {
+          setIsLegacyFormat(true);
+        } else {
+          setIsLegacyFormat(false);
+        }
+        setResumeDirty(false);
       } else {
-        alert(data.error || "Tailoring failed");
+        const message = data.error || "Tailoring failed";
+        setTailorError({ message, needsResume: /master resume/i.test(message) });
       }
     } finally {
       setTailoring(false);
@@ -203,6 +293,24 @@ export default function JobDetailPage({
     setDeleting(true);
     await fetch(`/api/jobs/${id}`, { method: "DELETE" });
     router.push("/jobs");
+  }
+
+  async function saveResumeEdits() {
+    if (!job || !tailoredResume) return;
+    setSavingResume(true);
+    try {
+      const contentToSave = typeof tailoredResume === "string"
+        ? tailoredResume
+        : JSON.stringify(tailoredResume);
+      const res = await fetch(`/api/jobs/${job.id}/resume`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: contentToSave }),
+      });
+      if (res.ok) setResumeDirty(false);
+    } finally {
+      setSavingResume(false);
+    }
   }
 
   async function exportPdf() {
@@ -342,7 +450,20 @@ export default function JobDetailPage({
                 <CardTitle className="flex items-center justify-between">
                   <span>{editing ? "Edit Job" : "Job Description"}</span>
                   {!editing && (
-                    <Button variant="outline" size="sm" onClick={startEdit}>Edit</Button>
+                    <div className="flex gap-2">
+                      {!job.description && job.url && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={fetchDescription}
+                          disabled={fetchingDesc}
+                          title="Fetch the description from the posting URL"
+                        >
+                          {fetchingDesc ? "Fetching…" : "Fetch from URL"}
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={startEdit}>Edit</Button>
+                    </div>
                   )}
                 </CardTitle>
               </CardHeader>
@@ -417,11 +538,17 @@ export default function JobDetailPage({
                   </div>
                 ) : (
                   <>
+                    {fetchDescMsg && (
+                      <p className="text-xs mb-2 text-muted-foreground">{fetchDescMsg}</p>
+                    )}
                     {job.description ? (
                       <div className="whitespace-pre-wrap text-sm">{job.description}</div>
                     ) : (
                       <p className="text-muted-foreground text-sm">
-                        No description added. Click Edit to paste the JD for AI features.
+                        No description added.{" "}
+                        {job.url
+                          ? "Use “Fetch from URL” above, or click Edit to paste the JD."
+                          : "Click Edit to paste the JD for AI features."}
                       </p>
                     )}
                   </>
@@ -628,7 +755,14 @@ export default function JobDetailPage({
                       ? "Re-Generate"
                       : "Generate Resume"}
                   </Button>
-                  {tailoredResume && (
+                  {tailoredResume && !isLegacyFormat && (
+                    <a href={`/api/jobs/${id}/resume/docx`} download>
+                      <Button variant="outline" size="sm">
+                        Download DOCX
+                      </Button>
+                    </a>
+                  )}
+                  {tailoredResume && isLegacyFormat && (
                     <Button onClick={exportPdf} variant="outline" size="sm">
                       Export PDF
                     </Button>
@@ -641,6 +775,20 @@ export default function JobDetailPage({
                 <p className="text-muted-foreground text-sm">
                   Add a job description in the Details tab to enable resume tailoring.
                 </p>
+              )}
+              {tailorError && (
+                <div className="mb-4 p-3 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-950 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-300">
+                  {tailorError.message}
+                  {tailorError.needsResume && (
+                    <>
+                      {" "}
+                      <Link href="/settings" className="font-medium underline">
+                        Add your master résumé in Settings
+                      </Link>
+                      .
+                    </>
+                  )}
+                </div>
               )}
               {tailoring && (
                 <div className="flex items-center justify-center py-12 gap-3">
@@ -658,22 +806,130 @@ export default function JobDetailPage({
                       <TabsTrigger value="edit">Edit</TabsTrigger>
                     </TabsList>
                     <TabsContent value="preview">
-                      <div
-                        id="resume-preview"
-                        className="prose prose-sm max-w-none p-6 bg-white border rounded-lg"
-                      >
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {tailoredResume}
-                        </ReactMarkdown>
-                      </div>
+                      {isLegacyFormat ? (
+                        <div
+                          id="resume-preview"
+                          className="prose prose-sm max-w-none p-6 bg-white border rounded-lg"
+                        >
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {tailoredResume as string}
+                          </ReactMarkdown>
+                        </div>
+                      ) : (
+                        <div className="p-6 bg-white border rounded-lg space-y-4">
+                          <div className="text-center">
+                            <h1 className="text-2xl font-bold">{(tailoredResume as ResumeStructure).name}</h1>
+                            <p className="text-sm text-muted-foreground italic">
+                              {(tailoredResume as ResumeStructure).tagline}
+                            </p>
+                            <p className="text-xs mt-1">
+                              {Object.values((tailoredResume as ResumeStructure).contact).filter(Boolean).join(" | ")}
+                            </p>
+                          </div>
+
+                          <div>
+                            <h2 className="text-base font-bold border-b pb-1">PROFESSIONAL SUMMARY</h2>
+                            <p className="text-sm mt-2">{(tailoredResume as ResumeStructure).professionalSummary}</p>
+                          </div>
+
+                          <div>
+                            <h2 className="text-base font-bold border-b pb-1">CORE COMPETENCIES</h2>
+                            <div className="mt-2 space-y-1 text-sm">
+                              {(tailoredResume as ResumeStructure).coreCompetencies.technical.length > 0 && (
+                                <p><strong>Technical:</strong> {(tailoredResume as ResumeStructure).coreCompetencies.technical.join(", ")}</p>
+                              )}
+                              {(tailoredResume as ResumeStructure).coreCompetencies.operations.length > 0 && (
+                                <p><strong>Operations:</strong> {(tailoredResume as ResumeStructure).coreCompetencies.operations.join(", ")}</p>
+                              )}
+                              {(tailoredResume as ResumeStructure).coreCompetencies.leadership.length > 0 && (
+                                <p><strong>Leadership:</strong> {(tailoredResume as ResumeStructure).coreCompetencies.leadership.join(", ")}</p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <h2 className="text-base font-bold border-b pb-1">PROFESSIONAL EXPERIENCE</h2>
+                            <div className="mt-2 space-y-3">
+                              {(tailoredResume as ResumeStructure).professionalExperience.map((exp, i) => (
+                                <div key={i}>
+                                  <p className="text-sm font-semibold">
+                                    {exp.title} | {exp.company} | {exp.location}{" "}
+                                    <span className="float-right font-normal">
+                                      {exp.startDate} – {exp.endDate}
+                                    </span>
+                                  </p>
+                                  <ul className="ml-4 mt-1 space-y-1 text-sm">
+                                    {exp.bullets.map((b, j) => (
+                                      <li key={j} className="flex">
+                                        <span className="mr-1">•</span>
+                                        <span>{b}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {(tailoredResume as ResumeStructure).technicalProficiencies.length > 0 && (
+                            <div>
+                              <h2 className="text-base font-bold border-b pb-1">TECHNICAL PROFICIENCIES</h2>
+                              <p className="text-sm mt-2">{(tailoredResume as ResumeStructure).technicalProficiencies.join(", ")}</p>
+                            </div>
+                          )}
+
+                          {(tailoredResume as ResumeStructure).certifications.length > 0 && (
+                            <div>
+                              <h2 className="text-base font-bold border-b pb-1">CERTIFICATIONS & ACHIEVEMENTS</h2>
+                              <ul className="ml-4 mt-2 space-y-1 text-sm">
+                                {(tailoredResume as ResumeStructure).certifications.map((c, i) => (
+                                  <li key={i}>• {c}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </TabsContent>
                     <TabsContent value="edit">
-                      <Textarea
-                        value={tailoredResume}
-                        onChange={(e) => setTailoredResume(e.target.value)}
-                        rows={30}
-                        className="font-mono text-sm"
-                      />
+                      {isLegacyFormat ? (
+                        <Textarea
+                          value={tailoredResume as string}
+                          onChange={(e) => { setTailoredResume(e.target.value); setResumeDirty(true); }}
+                          rows={30}
+                          className="font-mono text-sm"
+                        />
+                      ) : (
+                        <Textarea
+                          value={JSON.stringify(tailoredResume, null, 2)}
+                          onChange={(e) => {
+                            try {
+                              const parsed = JSON.parse(e.target.value);
+                              setTailoredResume(parsed);
+                            } catch {
+                              // If invalid JSON, keep as string and show error
+                              setTailoredResume(e.target.value);
+                            }
+                            setResumeDirty(true);
+                          }}
+                          rows={30}
+                          className="font-mono text-sm"
+                        />
+                      )}
+                      <div className="flex items-center gap-3 mt-2">
+                        <Button
+                          onClick={saveResumeEdits}
+                          disabled={savingResume || !resumeDirty}
+                          size="sm"
+                        >
+                          {savingResume ? "Saving…" : resumeDirty ? "Save Edits" : "Saved"}
+                        </Button>
+                        {resumeDirty && (
+                          <span className="text-xs text-amber-600 dark:text-amber-400">
+                            Unsaved changes — save to keep them after leaving this page.
+                          </span>
+                        )}
+                      </div>
                     </TabsContent>
                   </Tabs>
                 </div>

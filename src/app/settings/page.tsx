@@ -50,9 +50,14 @@ export default function SettingsPage() {
     discord_min_score: "70",
     discord_max_jobs: "10",
     scrape_dedupe_enabled: "true",
+    scrape_proxies: "",
+    scrape_proxy_sessions: "8",
   });
   const [hasApiKey, setHasApiKey] = useState(false);
   const [apiKeyTouched, setApiKeyTouched] = useState(false);
+  const [hasProxies, setHasProxies] = useState(false);
+  const [proxyCount, setProxyCount] = useState(0);
+  const [proxiesTouched, setProxiesTouched] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [hasDiscordWebhook, setHasDiscordWebhook] = useState(false);
   const [discordWebhookTouched, setDiscordWebhookTouched] = useState(false);
@@ -92,15 +97,19 @@ export default function SettingsPage() {
       .then((data) => {
         setHasApiKey(!!data.hasApiKey);
         setHasDiscordWebhook(!!data.hasDiscordWebhook);
+        setHasProxies(!!data.hasProxies);
+        setProxyCount(data.proxyCount ?? 0);
         setSettings((prev) => ({
           ...prev,
           ...data,
           anthropic_api_key: "",
           discord_webhook_url: "",
+          scrape_proxies: "",
           discord_notifications_enabled: data.discord_notifications_enabled ?? "false",
           discord_min_score: data.discord_min_score ?? "70",
           discord_max_jobs: data.discord_max_jobs ?? "10",
           scrape_dedupe_enabled: data.scrape_dedupe_enabled ?? "true",
+          scrape_proxy_sessions: data.scrape_proxy_sessions ?? "8",
         }));
         // Load schedule config if present
         if (data.schedule_searches) {
@@ -143,6 +152,7 @@ export default function SettingsPage() {
       discord_min_score: settings.discord_min_score,
       discord_max_jobs: settings.discord_max_jobs,
       scrape_dedupe_enabled: settings.scrape_dedupe_enabled,
+      scrape_proxy_sessions: settings.scrape_proxy_sessions,
     };
 
     if (apiKeyTouched) {
@@ -150,6 +160,9 @@ export default function SettingsPage() {
     }
     if (discordWebhookTouched) {
       payload.discord_webhook_url = settings.discord_webhook_url;
+    }
+    if (proxiesTouched) {
+      payload.scrape_proxies = settings.scrape_proxies;
     }
 
     await fetch("/api/settings", {
@@ -168,6 +181,13 @@ export default function SettingsPage() {
       setHasDiscordWebhook(true);
       setDiscordWebhookTouched(false);
       setSettings((prev) => ({ ...prev, discord_webhook_url: "" }));
+    }
+    if (proxiesTouched) {
+      const lines = settings.scrape_proxies.split(/\r?\n/).filter((l) => l.trim());
+      setHasProxies(lines.length > 0);
+      setProxyCount(lines.length);
+      setProxiesTouched(false);
+      setSettings((prev) => ({ ...prev, scrape_proxies: "" }));
     }
     setTimeout(() => setSaved(false), 3000);
   }
@@ -661,6 +681,44 @@ export default function SettingsPage() {
               />
               <span className="text-sm">Skip jobs already seen in previous scrape runs</span>
             </label>
+            <div>
+              <Label htmlFor="scrapeProxies">Scrape proxies (optional, one per line)</Label>
+              <Textarea
+                id="scrapeProxies"
+                value={settings.scrape_proxies}
+                onChange={(e) => {
+                  updateField("scrape_proxies", e.target.value);
+                  setProxiesTouched(true);
+                }}
+                placeholder={
+                  hasProxies
+                    ? `${proxyCount} prox${proxyCount === 1 ? "y" : "ies"} saved — enter new values to replace, or save empty to clear`
+                    : "user:pass@host:port\nhost:port\nlocalhost"
+                }
+                rows={4}
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                JobSpy round-robins through these per site. Strongly recommended for the
+                all-states Bulk Market Scan — LinkedIn blocks ~10 pages per IP and Indeed
+                degrades under sustained single-IP load. Credentials are never shown back.
+              </p>
+            </div>
+            <div className="max-w-xs">
+              <Label htmlFor="proxySessions">Proxy session pool size</Label>
+              <Input
+                id="proxySessions"
+                type="number"
+                min={1}
+                max={50}
+                value={settings.scrape_proxy_sessions}
+                onChange={(e) => updateField("scrape_proxy_sessions", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                For DataImpulse proxies: how many rotating residential IP sessions to spread
+                requests across. ~8 is a good balance. Ignored for non-DataImpulse proxies.
+              </p>
+            </div>
             <div className="flex items-center gap-3 flex-wrap">
               <Button
                 variant="outline"
@@ -686,7 +744,11 @@ export default function SettingsPage() {
             <Textarea
               value={settings.masterResume}
               onChange={(e) => updateField("masterResume", e.target.value)}
-              placeholder="Paste your master resume here (markdown format). This is the source of truth for AI resume tailoring. Include ALL experience, 4-6 bullets per role, fully quantified."
+              placeholder="Paste your master resume here (markdown format). Include ALL experience, 4-6 bullets per role, fully quantified. Add a CERTIFICATIONS section at the end with:
+• ISSA Certified Personal Trainer (CPT) — 2022
+• USA Weightlifting Level 1 Coach — 2021
+• CPR/AED & First Aid Certified
+• [other achievements]"
               rows={20}
               className="font-mono text-sm"
             />
