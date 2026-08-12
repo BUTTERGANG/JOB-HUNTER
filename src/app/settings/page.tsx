@@ -65,11 +65,13 @@ export default function SettingsPage() {
   const [discordTestResult, setDiscordTestResult] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   // BLS state
   const [blsStatus, setBlsStatus] = useState<{ count: number; year: number | null } | null>(null);
+  const [blsStatusError, setBlsStatusError] = useState(false);
   const [blsImporting, setBlsImporting] = useState(false);
   const [blsResult, setBlsResult] = useState<string | null>(null);
 
@@ -85,9 +87,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetch("/api/admin/import-bls")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load BLS status");
+        return r.json();
+      })
       .then((data) => setBlsStatus(data))
-      .catch(() => setBlsStatus({ count: 0, year: null }));
+      .catch(() => setBlsStatusError(true));
 
     fetch("/api/settings")
       .then((r) => {
@@ -137,6 +142,7 @@ export default function SettingsPage() {
   async function handleSave() {
     setSaving(true);
     setSaved(false);
+    setSaveError(null);
 
     const payload: Record<string, string> = {
       user_name: settings.user_name,
@@ -165,11 +171,24 @@ export default function SettingsPage() {
       payload.scrape_proxies = settings.scrape_proxies;
     }
 
-    await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSaveError(data.error || `Could not save settings (${res.status}). Please try again.`);
+        setSaving(false);
+        return;
+      }
+    } catch {
+      setSaveError("Network error — could not reach the server. Please try again.");
+      setSaving(false);
+      return;
+    }
+
     setSaving(false);
     setSaved(true);
     if (apiKeyTouched && settings.anthropic_api_key) {
@@ -243,34 +262,38 @@ export default function SettingsPage() {
   async function runScheduledNow() {
     setScheduleRunning(true);
     setScheduleRunResult(null);
-    // Save current schedule config first
-    await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        schedule_searches: JSON.stringify(scheduleSearches.filter((s) => s.term.trim() || s.location.trim())),
-        schedule_sites: JSON.stringify(scheduleSites),
-        schedule_results: scheduleResults,
-        schedule_hours: scheduleHours,
-        ...buildNotificationPayload(),
-      }),
-    });
-    const res = await fetch("/api/scrape/scheduled", { method: "POST" });
-    const data = await res.json();
-    if (res.ok) {
-      const dedupeText = data.dedupe && data.dedupe.inputCount !== data.dedupe.outputCount
-        ? ` ${data.dedupe.inputCount - data.dedupe.outputCount} duplicates skipped.`
-        : "";
-      const notificationText = data.notification?.sent
-        ? ` Discord sent for ${data.notification.highScoringCount} high-scoring jobs.`
-        : data.notification?.error
-        ? ` Discord not sent: ${data.notification.error}`
-        : data.notification?.highScoringCount === 0
-        ? " No jobs met the Discord threshold."
-        : "";
-      setScheduleRunResult(`Done — ${data.count} new jobs found and saved.${dedupeText}${notificationText}`);
-    } else {
-      setScheduleRunResult(`Error: ${data.error}`);
+    try {
+      // Save current schedule config first
+      await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          schedule_searches: JSON.stringify(scheduleSearches.filter((s) => s.term.trim() || s.location.trim())),
+          schedule_sites: JSON.stringify(scheduleSites),
+          schedule_results: scheduleResults,
+          schedule_hours: scheduleHours,
+          ...buildNotificationPayload(),
+        }),
+      });
+      const res = await fetch("/api/scrape/scheduled", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const dedupeText = data.dedupe && data.dedupe.inputCount !== data.dedupe.outputCount
+          ? ` ${data.dedupe.inputCount - data.dedupe.outputCount} duplicates skipped.`
+          : "";
+        const notificationText = data.notification?.sent
+          ? ` Discord sent for ${data.notification.highScoringCount} high-scoring jobs.`
+          : data.notification?.error
+          ? ` Discord not sent: ${data.notification.error}`
+          : data.notification?.highScoringCount === 0
+          ? " No jobs met the Discord threshold."
+          : "";
+        setScheduleRunResult(`Done — ${data.count} new jobs found and saved.${dedupeText}${notificationText}`);
+      } else {
+        setScheduleRunResult(`Error: ${data.error || `Scheduled scrape failed (${res.status}).`}`);
+      }
+    } catch {
+      setScheduleRunResult("Error: Network request failed");
     }
     setScheduleRunning(false);
   }
@@ -439,7 +462,11 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground">
               Download Indiana occupational wage data from the Bureau of Labor Statistics. Provides real government wage benchmarks (median, 25th/75th percentile) for ~800 occupations, shown alongside AI estimates in the scrape results.
             </p>
-            {blsStatus && (
+            {blsStatusError ? (
+              <p className="text-sm text-amber-600 dark:text-amber-400">
+                Couldn&apos;t check BLS data status. You can still run an import below.
+              </p>
+            ) : blsStatus ? (
               <p className="text-sm">
                 {blsStatus.count > 0 ? (
                   <span className="text-green-700 dark:text-green-400">
@@ -449,7 +476,7 @@ export default function SettingsPage() {
                   <span className="text-muted-foreground">No BLS data loaded yet.</span>
                 )}
               </p>
-            )}
+            ) : null}
             <div className="flex items-center gap-3 flex-wrap">
               <Button variant="outline" onClick={runBLSImport} disabled={blsImporting}>
                 {blsImporting
@@ -763,6 +790,7 @@ export default function SettingsPage() {
             {saving ? "Saving..." : "Save Settings"}
           </Button>
           {saved && <span className="text-sm text-green-600">Settings saved.</span>}
+          {saveError && <span className="text-sm text-destructive" role="alert">{saveError}</span>}
         </div>
       </div>
     </div>

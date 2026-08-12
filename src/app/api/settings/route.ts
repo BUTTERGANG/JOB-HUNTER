@@ -1,8 +1,19 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAllSettings, setSetting } from "@/lib/db/queries";
 import { getMasterResume, saveMasterResume } from "@/lib/db/queries";
+import { validateSettingsUpdate } from "@/lib/validation";
+import { settingsRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
-export async function GET() {
+async function GET(request: NextRequest) {
+  // Rate limiting
+  const rateLimit = settingsRateLimiter(getClientIdentifier(request));
+  if (!rateLimit.allowed) {
+    return new NextResponse(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: { ...rateLimit.headers, "Content-Type": "application/json" },
+    });
+  }
+
   const s = getAllSettings();
   const masterResume = getMasterResume();
 
@@ -16,63 +27,51 @@ export async function GET() {
   if (masked.discord_webhook_url) {
     masked.discord_webhook_url = "";
   }
+  // Proxy strings can contain credentials — never echo them back.
+  const proxyCount = s.scrape_proxies
+    ? s.scrape_proxies.split(/\r?\n/).filter((l) => l.trim()).length
+    : 0;
+  if (masked.scrape_proxies) {
+    masked.scrape_proxies = "";
+  }
 
   return Response.json({
     ...masked,
     hasApiKey: !!s.anthropic_api_key,
     hasDiscordWebhook: !!s.discord_webhook_url,
+    hasProxies: proxyCount > 0,
+    proxyCount,
     masterResume: masterResume?.content || "",
-  });
+  }, { headers: rateLimit.headers });
 }
 
-export async function PUT(request: NextRequest) {
+async function PUT(request: NextRequest) {
+  // Rate limiting
+  const rateLimit = settingsRateLimiter(getClientIdentifier(request));
+  if (!rateLimit.allowed) {
+    return new NextResponse(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: { ...rateLimit.headers, "Content-Type": "application/json" },
+    });
+  }
+
   const body = await request.json();
 
-  if (body.anthropic_api_key !== undefined) {
-    setSetting("anthropic_api_key", body.anthropic_api_key);
-  }
-  if (body.user_name !== undefined) {
-    setSetting("user_name", body.user_name);
-  }
-  if (body.target_salary_floor !== undefined) {
-    setSetting("target_salary_floor", body.target_salary_floor);
-  }
-  if (body.target_salary_target !== undefined) {
-    setSetting("target_salary_target", body.target_salary_target);
-  }
-  if (body.target_salary_stretch !== undefined) {
-    setSetting("target_salary_stretch", body.target_salary_stretch);
-  }
-  if (body.masterResume !== undefined) {
-    saveMasterResume(body.masterResume);
-  }
-  if (body.schedule_searches !== undefined) {
-    setSetting("schedule_searches", body.schedule_searches);
-  }
-  if (body.schedule_sites !== undefined) {
-    setSetting("schedule_sites", body.schedule_sites);
-  }
-  if (body.schedule_results !== undefined) {
-    setSetting("schedule_results", String(body.schedule_results));
-  }
-  if (body.schedule_hours !== undefined) {
-    setSetting("schedule_hours", String(body.schedule_hours));
-  }
-  if (body.discord_notifications_enabled !== undefined) {
-    setSetting("discord_notifications_enabled", String(body.discord_notifications_enabled));
-  }
-  if (body.discord_webhook_url !== undefined) {
-    setSetting("discord_webhook_url", String(body.discord_webhook_url));
-  }
-  if (body.discord_min_score !== undefined) {
-    setSetting("discord_min_score", String(body.discord_min_score));
-  }
-  if (body.discord_max_jobs !== undefined) {
-    setSetting("discord_max_jobs", String(body.discord_max_jobs));
-  }
-  if (body.scrape_dedupe_enabled !== undefined) {
-    setSetting("scrape_dedupe_enabled", String(body.scrape_dedupe_enabled));
+  // Validate input
+  const validation = validateSettingsUpdate(body);
+  if (!validation.ok) {
+    return Response.json({ error: validation.error }, { status: 400 });
   }
 
-  return Response.json({ success: true });
+  for (const [key, value] of Object.entries(validation.data!)) {
+    if (key === "masterResume") {
+      saveMasterResume(value);
+    } else {
+      setSetting(key, value);
+    }
+  }
+
+  return Response.json({ success: true }, { headers: rateLimit.headers });
 }
+
+export { GET, PUT };

@@ -10,6 +10,10 @@ export const JOB_STATUSES = [
   { value: "withdrew", label: "Withdrew", color: "bg-gray-100 text-gray-500" },
 ] as const;
 
+export const LISTING_STATUS_BADGE: Record<string, { label: string; color: string } | undefined> = {
+  expired: { label: "Expired", color: "bg-red-100 text-red-800" },
+};
+
 export const JOB_TIERS = [
   { value: "A", label: "Tier A", color: "bg-green-100 text-green-800" },
   { value: "B", label: "Tier B", color: "bg-blue-100 text-blue-800" },
@@ -38,6 +42,14 @@ export const SCORE_DIMENSIONS = [
   { key: "scoreComp", label: "Compensation", description: "Meets your floor? Range posted?" },
   { key: "scoreGrowth", label: "Growth Potential", description: "Learning, title, scope" },
 ] as const;
+
+export const SITES: { id: string; label: string }[] = [
+  { id: "linkedin", label: "LinkedIn" },
+  { id: "indeed", label: "Indeed" },
+  { id: "glassdoor", label: "Glassdoor" },
+  { id: "zip_recruiter", label: "ZipRecruiter" },
+  { id: "google", label: "Google" },
+];
 
 export const FOLLOW_UP_DAYS = 10;
 export const SCORE_THRESHOLD_HIGH = 18;

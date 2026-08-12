@@ -20,6 +20,7 @@ import { JOB_SOURCES, JOB_TIERS, SCORE_DIMENSIONS, scoreColor } from "@/lib/cons
 export default function NewJobPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [form, setForm] = useState({
     company: "",
     role: "",
@@ -50,6 +51,7 @@ export default function NewJobPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setSaveError(null);
 
     const payload = {
       ...form,
@@ -62,31 +64,47 @@ export default function NewJobPage() {
       scoreGrowth: form.scoreGrowth,
     };
 
-    const res = await fetch("/api/jobs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-    if (res.ok) {
-      const job = await res.json();
-      router.push(`/jobs/${job.id}`);
-    } else {
-      setSaving(false);
+      if (res.ok) {
+        const job = await res.json();
+        router.push(`/jobs/${job.id}`);
+        return;
+      }
+
+      const data = await res.json().catch(() => ({}));
+      setSaveError(data.error || `Could not save job (${res.status}). Please try again.`);
+    } catch {
+      setSaveError("Network error — could not reach the server. Please try again.");
     }
+    setSaving(false);
   }
 
   return (
-    <div className="max-w-3xl">
-      <h1 className="text-2xl font-bold mb-6">Add Job</h1>
+    <div className="max-w-4xl space-y-6">
+      <header className="border-b border-border/70 pb-6">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+          Pipeline entry
+        </p>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Add Job</h1>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+          Capture the details and signals you need to make a confident next move.
+        </p>
+      </header>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
-          <CardHeader>
+        <Card className="border-border/70 shadow-sm">
+          <CardHeader className="border-b border-border/60 bg-muted/20">
             <CardTitle>Basic Info</CardTitle>
+            <p className="text-sm text-muted-foreground">Start with the role, company, and where it came from.</p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="company">Company *</Label>
                 <Input
@@ -106,7 +124,7 @@ export default function NewJobPage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="location">Location</Label>
                 <Input
@@ -135,7 +153,7 @@ export default function NewJobPage() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="salaryMin">Salary Min ($)</Label>
                 <Input
@@ -170,9 +188,10 @@ export default function NewJobPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-border/70 shadow-sm">
+          <CardHeader className="border-b border-border/60 bg-muted/20">
             <CardTitle>Job Description</CardTitle>
+            <p className="text-sm text-muted-foreground">Paste the source description to keep your research in one place.</p>
           </CardHeader>
           <CardContent>
             <Textarea
@@ -185,14 +204,15 @@ export default function NewJobPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-border/70 shadow-sm">
+          <CardHeader className="border-b border-border/60 bg-muted/20">
             <CardTitle className="flex items-center justify-between">
               <span>Score Card</span>
-              <span className={`text-lg font-mono ${scoreColor(scoreTotal)}`}>
+              <span className={`rounded-full bg-background px-3 py-1 text-lg font-mono ring-1 ring-border/70 ${scoreColor(scoreTotal)}`}>
                 {scoreTotal}/25
               </span>
             </CardTitle>
+            <p className="text-sm text-muted-foreground">Use the same signals across every opportunity for a clearer comparison.</p>
           </CardHeader>
           <CardContent className="space-y-6">
             <p className="text-xs text-muted-foreground -mt-2">
@@ -249,12 +269,13 @@ export default function NewJobPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-border/70 shadow-sm">
+          <CardHeader className="border-b border-border/60 bg-muted/20">
             <CardTitle>Recruiter & Notes</CardTitle>
+            <p className="text-sm text-muted-foreground">Save context that will help when you follow up later.</p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="recruiterName">Recruiter Name</Label>
                 <Input
@@ -287,14 +308,21 @@ export default function NewJobPage() {
           </CardContent>
         </Card>
 
-        <div className="flex gap-3">
-          <Button type="submit" disabled={saving}>
+        {saveError && (
+          <p className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive" role="alert">
+            {saveError}
+          </p>
+        )}
+
+        <div className="flex flex-col-reverse gap-3 border-t border-border/70 pt-5 sm:flex-row">
+          <Button type="submit" disabled={saving} className="w-full sm:w-auto">
             {saving ? "Saving..." : "Save Job"}
           </Button>
           <Button
             type="button"
             variant="outline"
             onClick={() => router.back()}
+            className="w-full sm:w-auto"
           >
             Cancel
           </Button>

@@ -1,9 +1,10 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/index";
 import { scrapeResults, jobAnalysis } from "@/lib/db/schema";
 import { sql } from "drizzle-orm";
 import { normalizeJobUrl } from "@/lib/jobIdentity";
 import { getSocSectorName } from "@/lib/socSectors";
+import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
 interface ScrapedRow {
   id: number;
@@ -15,6 +16,8 @@ interface ScrapedRow {
   jobType: string | null;
   datePosted: string | null;
   createdAt: string;
+  salaryMin: number | null;
+  salaryMax: number | null;
   rankScore: number | null;
   scorePay: number | null;
   scoreFlexibility: number | null;
@@ -26,6 +29,9 @@ interface ScrapedRow {
   estimatedSalaryMax: number | null;
   salaryConfidence: string | null;
   socCode: string | null;
+  adjustedSalaryMin: number | null;
+  adjustedSalaryMax: number | null;
+  colIndex: number | null;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -168,19 +174,29 @@ function aggregate(raw: ScrapedRow[], sourceFilter: string | null) {
     else onsiteCount++;
   }
 
-  // Salary distribution (use actual min if available, otherwise estimated)
+  // Salary distribution — use COL-adjusted salary when available, then raw scraped, then AI estimate
   const salaryBuckets: Record<string, number> = {};
+  const salaryBySource: Record<string, { sum: number; count: number; min: number; max: number }> = {};
   let salarySum = 0, salaryCount = 0;
   for (const r of unique) {
-    const sal = r.estimatedSalaryMin ?? r.scorePay != null ? null : null; // prefer estimated
-    // We only have estimatedSalaryMin from analysis, not scraped salaryMin in this query
-    // Fall back to estimatedSalaryMin
-    const min = r.estimatedSalaryMin;
+    // Priority: COL-adjusted > raw scraped > AI estimate (for out-of-state fairness)
+    const min = r.adjustedSalaryMin ?? r.salaryMin ?? r.estimatedSalaryMin;
+    const max = r.adjustedSalaryMax ?? r.salaryMax ?? r.estimatedSalaryMax;
     if (min != null) {
       const bucket = bucketSalary(min);
       salaryBuckets[bucket] = (salaryBuckets[bucket] || 0) + 1;
       salarySum += min;
       salaryCount++;
+    }
+    // Track salary by source (for comparison chart)
+    const src = r.source ?? "Unknown";
+    if (!salaryBySource[src]) salaryBySource[src] = { sum: 0, count: 0, min: Infinity, max: 0 };
+    const mid = min != null && max != null ? (min + max) / 2 : min ?? max;
+    if (mid != null) {
+      salaryBySource[src].sum += mid;
+      salaryBySource[src].count++;
+      if (min != null && min < salaryBySource[src].min) salaryBySource[src].min = min;
+      if (max != null && max > salaryBySource[src].max) salaryBySource[src].max = max;
     }
   }
   const salaryDistribution = Object.entries(salaryBuckets)
@@ -269,6 +285,97 @@ function aggregate(raw: ScrapedRow[], sourceFilter: string | null) {
   const avgScore = scoreCount > 0 ? Math.round(scoreSum / scoreCount) : null;
   const avgSalary = salaryCount > 0 ? Math.round(salarySum / salaryCount) : null;
 
+  // Salary by source
+  const salaryBySourceArr = Object.entries(salaryBySource)
+    .map(([source, data]) => ({
+      source,
+      count: data.count,
+      avgSalary: data.count > 0 ? Math.round(data.sum / data.count) : null,
+      minSalary: data.min === Infinity ? null : data.min,
+      maxSalary: data.max === 0 ? null : data.max,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  // Top job titles (most common role names)
+  const titleCounts: Record<string, number> = {};
+  for (const r of unique) {
+    if (!r.role) continue;
+    const normalized = r.role.trim();
+    titleCounts[normalized] = (titleCounts[normalized] || 0) + 1;
+  }
+  const topJobTitles = Object.entries(titleCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([name, count]) => ({ name, count }));
+
+  // Title word frequency (excluding common stop words)
+  const STOP_WORDS = new Set([
+    "a", "an", "the", "and", "or", "in", "on", "at", "to", "for", "of", "with",
+    "by", "from", "is", "it", "as", "be", "was", "are", "this", "that", "will",
+    "we", "our", "you", "your", "their", "us", "me", "my", "i", "am", "do", "did",
+    "not", "but", "if", "so", "no", "yes", "up", "out", "all", "its", "new", "one",
+    "two", "can", "may", "has", "had", "have", "been", "being", "also", "more", "most",
+    "other", "into", "over", "such", "than", "then", "only", "just", "about", "after",
+    "before", "between", "through", "during", "above", "below", "each", "every", "both",
+    "few", "some", "any", "many", "much", "own", "same", "so", "very", "just", "now",
+    "here", "there", "when", "where", "how", "what", "which", "who", "whom", "these",
+    "those", "would", "could", "should", "shall", "will", "might", "must", "need",
+    "let", "like", "even", "still", "already", "yet", "since", "until", "while",
+    "remote", "onsite", "on-site", "full-time", "part-time", "full", "part", "time",
+    "based", "level", "senior", "junior", "lead", "principal", "staff", "entry",
+    "associate", "mid", "sr", "jr", "ii", "iii", "iv", "v", "1", "2", "3", "4", "5",
+  ]);
+  const wordCounts: Record<string, number> = {};
+  for (const r of unique) {
+    if (!r.role) continue;
+    const words = r.role.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/);
+    for (const w of words) {
+      if (w.length < 3 || STOP_WORDS.has(w)) continue;
+      wordCounts[w] = (wordCounts[w] || 0) + 1;
+    }
+  }
+  const titleWordFrequency = Object.entries(wordCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 30)
+    .map(([word, count]) => ({ word, count }));
+
+  // Posting freshness
+  const now = Date.now();
+  const DAY = 86400000;
+  let fresh24h = 0, fresh7d = 0, fresh30d = 0, older = 0, noDate = 0;
+  for (const r of unique) {
+    if (!r.datePosted) { noDate++; continue; }
+    const d = new Date(r.datePosted);
+    if (isNaN(d.getTime())) { noDate++; continue; }
+    const age = now - d.getTime();
+    if (age < DAY) fresh24h++;
+    else if (age < 7 * DAY) fresh7d++;
+    else if (age < 30 * DAY) fresh30d++;
+    else older++;
+  }
+  const postingFreshness = [
+    { label: "Last 24h", count: fresh24h },
+    { label: "Last 7 days", count: fresh7d },
+    { label: "Last 30 days", count: fresh30d },
+    { label: "Older", count: older },
+    { label: "No date", count: noDate },
+  ];
+
+  // National companies (hiring in 3+ states)
+  const companyStates: Map<string, Set<string>> = new Map();
+  for (const r of unique) {
+    if (!r.company || !r.location) continue;
+    const state = r.location.split(",").pop()?.trim();
+    if (!state) continue;
+    if (!companyStates.has(r.company)) companyStates.set(r.company, new Set());
+    companyStates.get(r.company)!.add(state);
+  }
+  const nationalCompanies = Array.from(companyStates.entries())
+    .filter(([, states]) => states.size >= 3)
+    .map(([company, states]) => ({ company, stateCount: states.size }))
+    .sort((a, b) => b.stateCount - a.stateCount)
+    .slice(0, 20);
+
   return {
     totalRaw,
     totalUnique,
@@ -282,18 +389,32 @@ function aggregate(raw: ScrapedRow[], sourceFilter: string | null) {
     locationBreakdown,
     remoteVsOnsite: { remote: remoteCount, onsite: onsiteCount },
     salaryDistribution,
+    salaryBySource: salaryBySourceArr,
     scoreDistribution,
     topCompanies,
+    topJobTitles,
+    titleWordFrequency,
     experienceBreakdown,
     sourceBreakdown,
     postingsTimeline,
     topBenefits,
+    postingFreshness,
+    nationalCompanies,
   };
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
-export async function GET(request: NextRequest) {
+async function GET_handler(request: NextRequest) {
+  // Rate limiting
+  const rateLimit = generalRateLimiter(getClientIdentifier(request));
+  if (!rateLimit.allowed) {
+    return new NextResponse(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: { ...rateLimit.headers, "Content-Type": "application/json" },
+    });
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const sourceFilter = searchParams.get("source");
   const minScoreParam = searchParams.get("minScore");
@@ -312,6 +433,8 @@ export async function GET(request: NextRequest) {
       jobType: scrapeResults.jobType,
       datePosted: scrapeResults.datePosted,
       createdAt: scrapeResults.createdAt,
+      salaryMin: scrapeResults.salaryMin,
+      salaryMax: scrapeResults.salaryMax,
       rankScore: jobAnalysis.rankScore,
       scorePay: jobAnalysis.scorePay,
       scoreFlexibility: jobAnalysis.scoreFlexibility,
@@ -323,6 +446,9 @@ export async function GET(request: NextRequest) {
       estimatedSalaryMax: jobAnalysis.estimatedSalaryMax,
       salaryConfidence: jobAnalysis.salaryConfidence,
       socCode: jobAnalysis.socCode,
+      adjustedSalaryMin: jobAnalysis.adjustedSalaryMin,
+      adjustedSalaryMax: jobAnalysis.adjustedSalaryMax,
+      colIndex: jobAnalysis.colIndex,
     })
     .from(scrapeResults)
     .leftJoin(jobAnalysis, sql`${scrapeResults.id} = ${jobAnalysis.scrapeResultId}`)
@@ -337,5 +463,7 @@ export async function GET(request: NextRequest) {
 
   const result = aggregate(filtered, sourceFilter);
 
-  return Response.json(result);
+  return Response.json(result, { headers: rateLimit.headers });
 }
+
+export const GET = GET_handler;

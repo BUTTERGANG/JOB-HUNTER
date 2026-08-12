@@ -31,12 +31,17 @@ interface MarketData {
   locationBreakdown: { name: string; count: number; pct: number }[];
   remoteVsOnsite: { remote: number; onsite: number };
   salaryDistribution: { range: string; count: number }[];
+  salaryBySource: { source: string; count: number; avgSalary: number | null; minSalary: number | null; maxSalary: number | null }[];
   scoreDistribution: { range: string; count: number }[];
   topCompanies: { name: string; count: number }[];
+  topJobTitles: { name: string; count: number }[];
+  titleWordFrequency: { word: string; count: number }[];
   experienceBreakdown: { name: string; count: number; pct: number }[];
   sourceBreakdown: { name: string; count: number; pct: number }[];
   postingsTimeline: { week: string; count: number }[];
   topBenefits: { name: string; count: number; pct: number }[];
+  postingFreshness: { label: string; count: number }[];
+  nationalCompanies: { company: string; stateCount: number }[];
 }
 
 // ─── Color palette ────────────────────────────────────────────────────────────
@@ -289,6 +294,7 @@ export default function AnalysisPage() {
           <TabsTrigger value="salary">Salary</TabsTrigger>
           <TabsTrigger value="demand">Demand</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="pulse">Market Pulse</TabsTrigger>
         </TabsList>
 
         {/* ─── OVERVIEW TAB ─────────────────────────────────────────────────── */}
@@ -758,6 +764,189 @@ export default function AnalysisPage() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+        {/* ─── MARKET PULSE TAB ─────────────────────────────────────────── */}
+        <TabsContent value="pulse" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Top job titles */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Top Job Titles</CardTitle></CardHeader>
+              <CardContent>
+                {data.topJobTitles.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={350}>
+                      <BarChart data={data.topJobTitles.slice(0, 12)} layout="vertical" margin={{ left: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={140} />
+                        <Tooltip
+                          contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
+                          formatter={(value) => [fmt(Number(value)), "Listings"]}
+                        />
+                        <Bar dataKey="count" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <ChartTable
+                      columns={[
+                        { key: "name", label: "Title" },
+                        { key: "count", label: "Listings", align: "right", format: (v) => fmt(Number(v)) },
+                      ]}
+                      data={data.topJobTitles.slice(0, 12)}
+                    />
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-12">No job title data yet.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Title word frequency */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Title Keywords</CardTitle></CardHeader>
+              <CardContent>
+                {data.titleWordFrequency.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={350}>
+                      <BarChart data={data.titleWordFrequency.slice(0, 15)} layout="vertical" margin={{ left: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                        <YAxis type="category" dataKey="word" tick={{ fontSize: 11 }} width={100} />
+                        <Tooltip
+                          contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }}
+                          formatter={(value) => [fmt(Number(value)), "Occurrences"]}
+                        />
+                        <Bar dataKey="count" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <ChartTable
+                      columns={[
+                        { key: "word", label: "Keyword" },
+                        { key: "count", label: "Occurrences", align: "right", format: (v) => fmt(Number(v)) },
+                      ]}
+                      data={data.titleWordFrequency.slice(0, 15)}
+                    />
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-12">No keyword data yet.</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Salary by source */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Salary by Source</CardTitle></CardHeader>
+              <CardContent>
+                {data.salaryBySource.length > 0 ? (
+                  <>
+                    <div className="space-y-3">
+                      {data.salaryBySource.map((s) => (
+                        <div key={s.source} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs capitalize w-24 justify-center">{s.source}</Badge>
+                            <span className="text-muted-foreground text-xs">{s.count} with salary data</span>
+                          </div>
+                          <div className="flex items-center gap-4 text-xs">
+                            {s.avgSalary && (
+                              <span className="font-mono font-medium">
+                                Avg {fmtSalary(s.avgSalary)}
+                              </span>
+                            )}
+                            {s.minSalary && s.maxSalary && (
+                              <span className="text-muted-foreground font-mono">
+                                {fmtSalary(s.minSalary)} – {fmtSalary(s.maxSalary)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <ChartTable
+                      columns={[
+                        { key: "source", label: "Source" },
+                        { key: "count", label: "Jobs w/ salary", align: "right", format: (v) => fmt(Number(v)) },
+                        { key: "avgSalary", label: "Avg", align: "right", format: (v) => fmtSalary(v ? Number(v) : null) },
+                        { key: "minSalary", label: "Min", align: "right", format: (v) => fmtSalary(v ? Number(v) : null) },
+                        { key: "maxSalary", label: "Max", align: "right", format: (v) => fmtSalary(v ? Number(v) : null) },
+                      ]}
+                      data={data.salaryBySource}
+                    />
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-12">No salary data by source yet. Appears when listings include salary info.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Posting freshness */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Posting Freshness</CardTitle></CardHeader>
+              <CardContent>
+                {data.postingFreshness.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie
+                          data={data.postingFreshness}
+                          cx="50%" cy="50%"
+                          innerRadius={55} outerRadius={100}
+                          dataKey="count"
+                          nameKey="label"
+                          stroke="none"
+                        >
+                          {data.postingFreshness.map((_, i) => (
+                            <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<PieTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <ChartLegend items={data.postingFreshness.map((e, i) => ({ name: e.label, color: PIE_COLORS[i % PIE_COLORS.length], count: e.count }))} />
+                    <ChartTable
+                      columns={[
+                        { key: "label", label: "Period" },
+                        { key: "count", label: "Jobs", align: "right", format: (v) => fmt(Number(v)) },
+                      ]}
+                      data={data.postingFreshness}
+                    />
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-12">No posting date data yet.</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* National hiring companies */}
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-base">National Hiring Companies (3+ States)</CardTitle></CardHeader>
+            <CardContent>
+              {data.nationalCompanies.length > 0 ? (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {data.nationalCompanies.map((c) => (
+                      <Badge key={c.company} variant="outline" className="text-xs px-3 py-1">
+                        {c.company}
+                        <span className="font-bold ml-1.5">{c.stateCount} states</span>
+                      </Badge>
+                    ))}
+                  </div>
+                  <ChartTable
+                    columns={[
+                      { key: "company", label: "Company" },
+                      { key: "stateCount", label: "States Hiring", align: "right", format: (v) => fmt(Number(v)) },
+                    ]}
+                    data={data.nationalCompanies}
+                  />
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-12">
+                  No multi-state hiring patterns detected yet. Need more data across states.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

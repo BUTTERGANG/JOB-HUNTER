@@ -1,24 +1,44 @@
 import { getSetting } from "@/lib/db/queries";
 import { runScrapeAndAnalyze } from "@/lib/scrapeRunner";
 import { sendDiscordHighScoreJobsNotification } from "@/lib/notifications/discord";
+import { NextRequest, NextResponse } from "next/server";
+import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
 export const maxDuration = 300; // 5-minute server timeout for large scrapes
 
-export async function GET() {
+async function GET_handler(request: NextRequest) {
+  // Rate limiting
+  const rateLimit = generalRateLimiter(getClientIdentifier(request));
+  if (!rateLimit.allowed) {
+    return new NextResponse(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: { ...rateLimit.headers, "Content-Type": "application/json" },
+    });
+  }
+
   return Response.json({
     searches: parseJsonSetting(getSetting("schedule_searches"), []),
     sites: parseJsonSetting(getSetting("schedule_sites"), ["linkedin", "indeed"]),
     results: Number(getSetting("schedule_results") ?? "25"),
     hours: Number(getSetting("schedule_hours") ?? "24"),
-  });
+  }, { headers: rateLimit.headers });
 }
 
-export async function POST() {
+async function POST_handler(request: NextRequest) {
+  // Rate limiting - very strict for scheduled runs (one per minute max)
+  const rateLimit = generalRateLimiter(getClientIdentifier(request));
+  if (!rateLimit.allowed) {
+    return new NextResponse(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: { ...rateLimit.headers, "Content-Type": "application/json" },
+    });
+  }
+
   const searchesRaw = getSetting("schedule_searches");
   if (!searchesRaw) {
     return Response.json(
       { error: "No scheduled searches configured. Set them in Settings > Scheduled Scrape." },
-      { status: 400 }
+      { status: 400, headers: rateLimit.headers }
     );
   }
 
@@ -28,11 +48,11 @@ export async function POST() {
     searches = JSON.parse(searchesRaw);
     sites = parseJsonSetting(getSetting("schedule_sites"), ["linkedin", "indeed"]);
   } catch {
-    return Response.json({ error: "Invalid schedule configuration in settings." }, { status: 400 });
+    return Response.json({ error: "Invalid schedule configuration in settings." }, { status: 400, headers: rateLimit.headers });
   }
 
   if (!Array.isArray(searches) || searches.length === 0) {
-    return Response.json({ error: "Schedule searches list is empty." }, { status: 400 });
+    return Response.json({ error: "Schedule searches list is empty." }, { status: 400, headers: rateLimit.headers });
   }
 
   const results = Number(getSetting("schedule_results") ?? "25");
@@ -41,14 +61,17 @@ export async function POST() {
   const { jobs, count, dedupe, error } = await runScrapeAndAnalyze({ searches, sites, results, hours });
 
   if (error) {
-    return Response.json({ error }, { status: 500 });
+    return Response.json({ error }, { status: 500, headers: rateLimit.headers });
   }
 
   const ranAt = new Date().toISOString();
   const notification = await maybeSendDiscordNotification({ jobs, count, ranAt });
 
-  return Response.json({ jobs, count, dedupe, notification, ran_at: ranAt });
+  return Response.json({ jobs, count, dedupe, notification, ran_at: ranAt }, { headers: rateLimit.headers });
 }
+
+export const GET = GET_handler;
+export const POST = POST_handler;
 
 async function maybeSendDiscordNotification({
   jobs,

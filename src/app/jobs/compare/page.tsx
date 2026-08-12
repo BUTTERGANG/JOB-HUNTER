@@ -42,6 +42,7 @@ function CompareContent() {
   const [allJobs, setAllJobs] = useState<Job[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/jobs")
@@ -53,7 +54,10 @@ function CompareContent() {
         setAllJobs(data);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        setError("Could not load your jobs. Please refresh to try again.");
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -87,7 +91,13 @@ function CompareContent() {
     <div>
       <h1 className="text-2xl font-bold mb-6">Compare Jobs</h1>
 
-      {allJobs.length === 0 ? (
+      {error ? (
+        <Card>
+          <CardContent className="pt-6 text-center text-destructive">
+            {error}
+          </CardContent>
+        </Card>
+      ) : allJobs.length === 0 ? (
         <Card>
           <CardContent className="pt-6 text-center text-muted-foreground">
             No jobs to compare. <Link href="/jobs/new" className="underline">Add some first.</Link>

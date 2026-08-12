@@ -1,6 +1,8 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSetting, getMasterResume, saveTailoredResume, getAnalysis } from "@/lib/db/queries";
+import { validateTailorRequest } from "@/lib/validation";
+import { aiRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
 function parseJsonArray(value: string | null | undefined): string[] {
   if (!value) return [];
@@ -12,10 +14,25 @@ function parseJsonArray(value: string | null | undefined): string[] {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POST_handler(request: NextRequest) {
+  // Rate limiting
+  const rateLimit = aiRateLimiter(getClientIdentifier(request));
+  if (!rateLimit.allowed) {
+    return new NextResponse(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: { ...rateLimit.headers, "Content-Type": "application/json" },
+    });
+  }
+
   const body = await request.json();
 
-  if (!body.description) {
+  // Validate input
+  const validation = validateTailorRequest(body);
+  if (!validation.ok) {
+    return Response.json({ error: validation.error }, { status: 400 });
+  }
+
+  if (!validation.data!.description) {
     return Response.json({ error: "Job description is required" }, { status: 400 });
   }
 
@@ -40,8 +57,8 @@ export async function POST(request: NextRequest) {
   // Fold in the intel we already gathered for this job (from the JD analysis), so
   // the tailored résumé front-loads the exact ATS terms the posting calls for.
   let intel = "";
-  if (body.jobId) {
-    const analysis = getAnalysis(Number(body.jobId));
+  if (validation.data!.jobId) {
+    const analysis = getAnalysis(validation.data!.jobId);
     if (analysis) {
       const keywords = parseJsonArray(analysis.keywords);
       const mustHave = parseJsonArray(analysis.mustHave);
@@ -106,13 +123,17 @@ JSON Schema:
 ${masterResume.content}
 
 ## JOB DESCRIPTION:
-${body.description}${intel}`;
+${validation.data!.description}${intel}`;
 
   let response;
   try {
     response = await client.messages.create({
       model: "claude-sonnet-5",
-      max_tokens: 4096,
+      // A full structured résumé (summary + competencies + 3-4 roles + certs)
+      // runs well past 4096 output tokens; at 4096 the JSON was getting cut off
+      // mid-array, producing invalid JSON that silently degraded to "legacy
+      // markdown". 8192 gives comfortable headroom.
+      max_tokens: 8192,
       messages: [{ role: "user", content: prompt }],
     });
   } catch (e) {
@@ -120,28 +141,42 @@ ${body.description}${intel}`;
     return Response.json({ error: `AI request failed: ${message}` }, { status: 502 });
   }
 
+  // If the model hit the token ceiling the JSON is truncated and unparseable.
+  // Fail loudly instead of persisting a broken résumé the UI can't render.
+  if (response.stop_reason === "max_tokens") {
+    return Response.json(
+      { error: "Resume was too long and got cut off. Please try generating again." },
+      { status: 502 }
+    );
+  }
+
   // Models with extended thinking return a leading "thinking" block, so pull the
   // first actual text block rather than assuming content[0].
   const textBlock = response.content.find((b) => b.type === "text");
   const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
 
-  // Parse JSON response
+  // Parse JSON response. Strip a ```json ... ``` code fence if the model added
+  // one, then grab the outermost {...} object.
   let resumeJson: Record<string, unknown>;
   try {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : text;
+    const unfenced = text.replace(/```(?:json)?\s*/gi, "").replace(/```/g, "");
+    const jsonMatch = unfenced.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : unfenced;
     resumeJson = JSON.parse(jsonStr);
   } catch {
     // Fallback: return raw markdown if JSON parsing fails (backward compatible)
-    if (body.jobId) {
-      saveTailoredResume(Number(body.jobId), text);
+    if (validation.data!.jobId) {
+      saveTailoredResume(validation.data!.jobId, text);
     }
-    return Response.json({ content: text, isLegacy: true });
+    return Response.json({ content: text, isLegacy: true }, { headers: rateLimit.headers });
   }
 
-  if (body.jobId) {
-    saveTailoredResume(Number(body.jobId), JSON.stringify(resumeJson));
+  if (validation.data!.jobId) {
+    saveTailoredResume(validation.data!.jobId, JSON.stringify(resumeJson));
   }
 
-  return Response.json({ content: resumeJson });
+  return Response.json({ content: resumeJson }, { headers: rateLimit.headers });
 }
+
+// Export the auth-wrapped handler for Next.js
+export const POST = POST_handler;

@@ -25,6 +25,7 @@ import {
   JOB_TIERS,
   JOB_SOURCES,
   SCORE_DIMENSIONS,
+  LISTING_STATUS_BADGE,
   scoreColor,
 } from "@/lib/constants";
 import type { Job } from "@/lib/db/schema";
@@ -37,6 +38,28 @@ interface Analysis {
   mustHave: string[];
   niceToHave: string[];
   questions: string[];
+}
+
+interface RankAnalysis {
+  rankScore: number;
+  scorePay: number;
+  scoreFlexibility: number;
+  scoreLocation: number;
+  scoreRequirements: number;
+  scoreHours: number;
+  scoreResponsibilities: number;
+  estimatedSalaryMin: number | null;
+  estimatedSalaryMax: number | null;
+  salaryConfidence: "high" | "medium" | "low" | null;
+  socCode: string | null;
+  blsWage: {
+    occTitle: string;
+    aMedian: number | null;
+    aPct25: number | null;
+    aPct75: number | null;
+    aMean: number | null;
+    dataYear: number;
+  } | null;
 }
 
 interface ResumeStructure {
@@ -79,11 +102,13 @@ export default function JobDetailPage({
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [rankAnalysis, setRankAnalysis] = useState<RankAnalysis | null>(null);
   const [tailoredResume, setTailoredResume] = useState<TailoredResumeData>("");
   const [isLegacyFormat, setIsLegacyFormat] = useState(false);
   const [resumeDirty, setResumeDirty] = useState(false);
   const [savingResume, setSavingResume] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [tailoring, setTailoring] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -91,6 +116,7 @@ export default function JobDetailPage({
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [fetchingDesc, setFetchingDesc] = useState(false);
   const [fetchDescMsg, setFetchDescMsg] = useState<string | null>(null);
+  const [checkingListing, setCheckingListing] = useState(false);
   const [tailorError, setTailorError] = useState<{ message: string; needsResume: boolean } | null>(null);
 
   useEffect(() => {
@@ -104,29 +130,38 @@ export default function JobDetailPage({
 
     fetch(`/api/jobs/${id}/analysis`)
       .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data) setAnalysis(data); });
+      .then((data) => { if (data) setAnalysis(data); })
+      // Analysis is optional secondary data; a failure just means none is shown.
+      .catch(() => {});
 
     fetch(`/api/jobs/${id}/resume`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (data?.content) {
           const content = data.content;
-          setTailoredResume(content);
-          // Detect if legacy format
+          // The DB always hands back content as a string. Parse it so that a
+          // structured résumé is held in state as an OBJECT (matching what
+          // tailorResume() produces) — the structured preview and Edit tab both
+          // assume an object. Legacy markdown stays a string.
           try {
-            if (typeof content === "string") {
-              // Check if it looks like JSON or markdown
-              const parsed = JSON.parse(content);
-              setIsLegacyFormat(!parsed.professionalSummary);
+            const parsed = typeof content === "string" ? JSON.parse(content) : content;
+            if (parsed && typeof parsed === "object" && parsed.professionalSummary) {
+              setTailoredResume(parsed);
+              setIsLegacyFormat(false);
             } else {
-              setIsLegacyFormat(!content.professionalSummary);
+              setTailoredResume(content);
+              setIsLegacyFormat(true);
             }
           } catch {
+            // Not JSON → legacy markdown string
+            setTailoredResume(content);
             setIsLegacyFormat(true);
           }
           setResumeDirty(false);
         }
-      });
+      })
+      // Saved résumé is optional; a failure just means none is preloaded.
+      .catch(() => {});
   }, [id]);
 
   if (error) {
@@ -216,18 +251,27 @@ export default function JobDetailPage({
   async function analyzeJD() {
     if (!job?.description) return;
     setAnalyzing(true);
+    setAnalyzeError(null);
     try {
       const res = await fetch("/api/ai/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description: job.description, jobId: job.id }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setAnalysis(data);
+        // Handle rank analysis from response - refetch job for updated scores
+        if (data.rankAnalysis) {
+          setRankAnalysis(data.rankAnalysis);
+          // Refetch job to get the updated scores and scoreTotal from DB
+          fetch(`/api/jobs/${job.id}`).then(r => r.ok && r.json()).then(setJob).catch(() => {});
+        }
       } else {
-        alert(data.error || "Analysis failed");
+        setAnalyzeError(data.error || `Analysis failed (${res.status}). Please try again.`);
       }
+    } catch {
+      setAnalyzeError("Network error — could not reach the server. Please try again.");
     } finally {
       setAnalyzing(false);
     }
@@ -256,6 +300,22 @@ export default function JobDetailPage({
       setFetchDescMsg("Couldn't reach the posting. Paste the description manually with Edit.");
     } finally {
       setFetchingDesc(false);
+    }
+  }
+
+  async function recheckListing() {
+    if (!job?.url) return;
+    setCheckingListing(true);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/check-listing`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setJob((prev) =>
+          prev ? { ...prev, listingStatus: data.listingStatus, listingCheckedAt: data.listingCheckedAt } : prev
+        );
+      }
+    } finally {
+      setCheckingListing(false);
     }
   }
 
@@ -331,6 +391,20 @@ export default function JobDetailPage({
 
   const formatSalary = (n: number) => `$${n.toLocaleString()}`;
 
+  // Score pill helper for rank analysis display
+  const ScorePill = ({ value }: { value: number }) => {
+    const color = value >= 7
+      ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800"
+      : value >= 4
+      ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+      : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300 border-red-200 dark:border-red-800";
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-medium ${color}`}>
+        <span className="font-bold">{value}/10</span>
+      </span>
+    );
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -344,8 +418,13 @@ export default function JobDetailPage({
               {job.role} at {job.company}
             </span>
           </div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-2xl font-bold flex items-center gap-2">
             {job.role} at {job.company}
+            {LISTING_STATUS_BADGE[job.listingStatus ?? ""] && (
+              <Badge variant="outline" className={LISTING_STATUS_BADGE[job.listingStatus ?? ""]!.color}>
+                {LISTING_STATUS_BADGE[job.listingStatus ?? ""]!.label}
+              </Badge>
+            )}
           </h1>
           <div className="flex items-center gap-2 mt-2">
             {job.location && (
@@ -367,6 +446,17 @@ export default function JobDetailPage({
                 View Listing
               </Button>
             </a>
+          )}
+          {job.url && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={recheckListing}
+              disabled={checkingListing}
+              title={job.listingCheckedAt ? `Last checked ${new Date(job.listingCheckedAt).toLocaleString()}` : undefined}
+            >
+              {checkingListing ? "Checking…" : "Recheck listing"}
+            </Button>
           )}
           {deleteConfirm ? (
             <>
@@ -650,8 +740,74 @@ export default function JobDetailPage({
                   Add a job description in the Details tab to enable AI analysis.
                 </p>
               )}
+              {analyzeError && (
+                <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive" role="alert">
+                  {analyzeError}
+                </div>
+              )}
               {analysis && (
                 <div className="space-y-6">
+                  {/* Rank Analysis Header - shows score + estimated salary */}
+                  {rankAnalysis && (
+                    <div className="flex items-center gap-6 p-4 bg-muted/30 rounded-lg">
+                      <div className="text-center">
+                        <span className={`inline-flex flex-col items-center justify-center w-16 h-16 rounded-lg border text-xl font-bold ${scoreColor(rankAnalysis.rankScore)}`}>
+                          {rankAnalysis.rankScore}
+                          <span className="text-[10px] font-medium opacity-70">/ 100</span>
+                        </span>
+                        <span className="text-xs text-muted-foreground mt-1 block">AI Rank</span>
+                      </div>
+                      <div className="flex-1 grid grid-cols-3 gap-3 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Pay</span>
+                          <ScorePill value={rankAnalysis.scorePay} />
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Flexibility</span>
+                          <ScorePill value={rankAnalysis.scoreFlexibility} />
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Location</span>
+                          <ScorePill value={rankAnalysis.scoreLocation} />
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Requirements</span>
+                          <ScorePill value={rankAnalysis.scoreRequirements} />
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Hours</span>
+                          <ScorePill value={rankAnalysis.scoreHours} />
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Workload</span>
+                          <ScorePill value={rankAnalysis.scoreResponsibilities} />
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-medium">
+                          {rankAnalysis.estimatedSalaryMin != null || rankAnalysis.estimatedSalaryMax != null
+                            ? `$${((rankAnalysis.estimatedSalaryMin ?? rankAnalysis.estimatedSalaryMax ?? 0) / 1000).toFixed(0)}k`
+                            : "—"}
+                          {rankAnalysis.estimatedSalaryMax != null && rankAnalysis.estimatedSalaryMin != null
+                            ? ` – $${(rankAnalysis.estimatedSalaryMax / 1000).toFixed(0)}k`
+                            : rankAnalysis.estimatedSalaryMax != null
+                              ? ` (up to ${(rankAnalysis.estimatedSalaryMax / 1000).toFixed(0)}k)`
+                              : ""}
+                        </div>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${rankAnalysis.salaryConfidence === "high" ? "bg-green-100 text-green-700" : rankAnalysis.salaryConfidence === "medium" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-600"}`}>
+                          {rankAnalysis.salaryConfidence ?? "low"} confidence
+                        </span>
+                        {rankAnalysis.blsWage && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            BLS: {rankAnalysis.blsWage.occTitle} • {rankAnalysis.blsWage.aMedian
+                              ? `$${(rankAnalysis.blsWage.aMedian / 1000).toFixed(0)}k median`
+                              : "median: —"}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-4">
                     <div className="text-center">
                       <div
@@ -809,40 +965,50 @@ export default function JobDetailPage({
                       {isLegacyFormat ? (
                         <div
                           id="resume-preview"
-                          className="prose prose-sm max-w-none p-6 bg-white border rounded-lg"
+                          className="prose prose-sm max-w-none p-6 bg-white text-neutral-900 border rounded-lg"
                         >
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {tailoredResume as string}
                           </ReactMarkdown>
                         </div>
                       ) : (
-                        <div className="p-6 bg-white border rounded-lg space-y-4">
+                        (() => {
+                          // Structured résumés come straight from the model, so a
+                          // field can be missing. Read defensively — a partial
+                          // object must never crash the whole page.
+                          const r = tailoredResume as Partial<ResumeStructure>;
+                          const cc = r.coreCompetencies ?? { technical: [], operations: [], leadership: [] };
+                          const experience = r.professionalExperience ?? [];
+                          const techProf = r.technicalProficiencies ?? [];
+                          const certs = r.certifications ?? [];
+                          return (
+                          <div className="p-6 bg-white text-neutral-900 border rounded-lg space-y-4">
                           <div className="text-center">
-                            <h1 className="text-2xl font-bold">{(tailoredResume as ResumeStructure).name}</h1>
-                            <p className="text-sm text-muted-foreground italic">
-                              {(tailoredResume as ResumeStructure).tagline}
+                            <h1 className="text-2xl font-bold">{r.name}</h1>
+                            <p className="text-sm text-neutral-500 italic">
+                              {r.tagline}
                             </p>
                             <p className="text-xs mt-1">
-                              {Object.values((tailoredResume as ResumeStructure).contact).filter(Boolean).join(" | ")}
+                              {Object.values(r.contact ?? {}).filter(Boolean).join(" | ")}
                             </p>
                           </div>
 
                           <div>
                             <h2 className="text-base font-bold border-b pb-1">PROFESSIONAL SUMMARY</h2>
-                            <p className="text-sm mt-2">{(tailoredResume as ResumeStructure).professionalSummary}</p>
+                            <p className="text-sm mt-2">{r.professionalSummary}</p>
                           </div>
 
                           <div>
                             <h2 className="text-base font-bold border-b pb-1">CORE COMPETENCIES</h2>
                             <div className="mt-2 space-y-1 text-sm">
-                              {(tailoredResume as ResumeStructure).coreCompetencies.technical.length > 0 && (
-                                <p><strong>Technical:</strong> {(tailoredResume as ResumeStructure).coreCompetencies.technical.join(", ")}</p>
+                              {(cc.technical?.length ?? 0) > 0 && (
+                                <p><strong>Technical:</strong> {cc.technical.join(", ")}</p>
                               )}
-                              {(tailoredResume as ResumeStructure).coreCompetencies.operations.length > 0 && (
-                                <p><strong>Operations:</strong> {(tailoredResume as ResumeStructure).coreCompetencies.operations.join(", ")}</p>
+                              {(cc.operations?.length ?? 0) > 0 && (
+                                <p><strong>Operations:</strong> {cc.operations.join(", ")}</p>
                               )}
-                              {(tailoredResume as ResumeStructure).coreCompetencies.leadership.length > 0 && (
-                                <p><strong>Leadership:</strong> {(tailoredResume as ResumeStructure).coreCompetencies.leadership.join(", ")}</p>
+                              {(cc.leadership?.length ?? 0) > 0 && (
+                                <p><strong>Leadership:</strong> {cc.leadership.join(", ")}</p>
                               )}
                             </div>
                           </div>
@@ -850,7 +1016,7 @@ export default function JobDetailPage({
                           <div>
                             <h2 className="text-base font-bold border-b pb-1">PROFESSIONAL EXPERIENCE</h2>
                             <div className="mt-2 space-y-3">
-                              {(tailoredResume as ResumeStructure).professionalExperience.map((exp, i) => (
+                              {experience.map((exp, i) => (
                                 <div key={i}>
                                   <p className="text-sm font-semibold">
                                     {exp.title} | {exp.company} | {exp.location}{" "}
@@ -859,7 +1025,7 @@ export default function JobDetailPage({
                                     </span>
                                   </p>
                                   <ul className="ml-4 mt-1 space-y-1 text-sm">
-                                    {exp.bullets.map((b, j) => (
+                                    {(exp.bullets ?? []).map((b, j) => (
                                       <li key={j} className="flex">
                                         <span className="mr-1">•</span>
                                         <span>{b}</span>
@@ -871,24 +1037,26 @@ export default function JobDetailPage({
                             </div>
                           </div>
 
-                          {(tailoredResume as ResumeStructure).technicalProficiencies.length > 0 && (
+                          {techProf.length > 0 && (
                             <div>
                               <h2 className="text-base font-bold border-b pb-1">TECHNICAL PROFICIENCIES</h2>
-                              <p className="text-sm mt-2">{(tailoredResume as ResumeStructure).technicalProficiencies.join(", ")}</p>
+                              <p className="text-sm mt-2">{techProf.join(", ")}</p>
                             </div>
                           )}
 
-                          {(tailoredResume as ResumeStructure).certifications.length > 0 && (
+                          {certs.length > 0 && (
                             <div>
                               <h2 className="text-base font-bold border-b pb-1">CERTIFICATIONS & ACHIEVEMENTS</h2>
                               <ul className="ml-4 mt-2 space-y-1 text-sm">
-                                {(tailoredResume as ResumeStructure).certifications.map((c, i) => (
+                                {certs.map((c, i) => (
                                   <li key={i}>• {c}</li>
                                 ))}
                               </ul>
                             </div>
                           )}
-                        </div>
+                          </div>
+                          );
+                        })()
                       )}
                     </TabsContent>
                     <TabsContent value="edit">

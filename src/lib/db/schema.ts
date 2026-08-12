@@ -12,6 +12,8 @@ export const jobs = sqliteTable("jobs", {
   source: text("source"),
   description: text("description"),
   status: text("status").default("saved").notNull(),
+  listingStatus: text("listing_status").default("unknown"),
+  listingCheckedAt: text("listing_checked_at"),
   tier: text("tier").default("B"),
   scoreRole: integer("score_role"),
   scoreSkills: integer("score_skills"),
@@ -92,6 +94,7 @@ export const scrapeResults = sqliteTable("scrape_results", {
   salaryMax: integer("salary_max"),
   datePosted: text("date_posted"),
   jobType: text("job_type"),
+  description: text("description"),
   createdAt: text("created_at")
     .default(sql`(datetime('now'))`)
     .notNull(),
@@ -117,6 +120,9 @@ export const jobAnalysis = sqliteTable("job_analysis", {
   estimatedSalaryMax: integer("estimated_salary_max"),
   salaryConfidence: text("salary_confidence"),
   socCode: text("soc_code"),
+  adjustedSalaryMin: integer("adjusted_salary_min"),
+  adjustedSalaryMax: integer("adjusted_salary_max"),
+  colIndex: integer("col_index"),
   createdAt: text("created_at")
     .default(sql`(datetime('now'))`)
     .notNull(),
@@ -133,6 +139,68 @@ export const blsWages = sqliteTable("bls_wages", {
   dataYear: integer("data_year"),
 });
 
+export const bulkRuns = sqliteTable("bulk_runs", {
+  id: text("id").primaryKey(),
+  status: text("status").notNull().default("running"),
+  total: integer("total").notNull().default(0),
+  done: integer("done").notNull().default(0),
+  jobsTotal: integer("jobs_total").notNull().default(0),
+  config: text("config"),
+  progress: text("progress"),
+  startedAt: text("started_at").default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").default(sql`(datetime('now'))`),
+});
+
+export const analysisRuns = sqliteTable("analysis_runs", {
+  id: text("id").primaryKey(),
+  status: text("status").notNull().default("running"),
+  total: integer("total").notNull().default(0),
+  analyzed: integer("analyzed").notNull().default(0),
+  errors: integer("errors").notNull().default(0),
+  startedAt: text("started_at").default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").default(sql`(datetime('now'))`),
+});
+
+export const govScrapeRuns = sqliteTable("gov_scrape_runs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  keyword: text("keyword").notNull().default(""),
+  location: text("location").notNull().default(""),
+  totalFound: integer("total_found").notNull().default(0),
+  createdAt: text("created_at")
+    .default(sql`(datetime('now'))`)
+    .notNull(),
+});
+
+export const govScrapeResults = sqliteTable("gov_scrape_results", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  scrapeRunId: integer("scrape_run_id")
+    .references(() => govScrapeRuns.id, { onDelete: "cascade" })
+    .notNull(),
+  title: text("title").notNull(),
+  company: text("company").notNull().default("State of Indiana"),
+  location: text("location"),
+  salary: text("salary"),
+  datePosted: text("date_posted"),
+  url: text("url"),
+  description: text("description"),
+  createdAt: text("created_at")
+    .default(sql`(datetime('now'))`)
+    .notNull(),
+});
+
+export const listingStatusHistory = sqliteTable("listing_status_history", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  jobId: integer("job_id")
+    .references(() => jobs.id, { onDelete: "cascade" })
+    .notNull(),
+  status: text("status").notNull(),
+  checkedAt: text("checked_at").notNull(),
+});
+
+export type AnalysisRunRow = typeof analysisRuns.$inferSelect;
+export type BulkRunRow = typeof bulkRuns.$inferSelect;
+export type GovScrapeRun = typeof govScrapeRuns.$inferSelect;
+export type GovScrapeResult = typeof govScrapeResults.$inferSelect;
 export type BLSWagesRow = typeof blsWages.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;

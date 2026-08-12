@@ -1,24 +1,46 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getScrapeRunById, getScrapeResultsByRunId, deleteScrapeRun } from "@/lib/db/queries";
+import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
-export async function GET(
-  _request: NextRequest,
+async function GET_handler(
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Rate limiting
+  const rateLimit = generalRateLimiter(getClientIdentifier(request));
+  if (!rateLimit.allowed) {
+    return new NextResponse(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: { ...rateLimit.headers, "Content-Type": "application/json" },
+    });
+  }
+
   const { id } = await params;
   const run = getScrapeRunById(Number(id));
-  if (!run) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!run) return Response.json({ error: "Not found" }, { status: 404, headers: rateLimit.headers });
   const results = getScrapeResultsByRunId(Number(id));
-  return Response.json({ ...run, results });
+  return Response.json({ ...run, results }, { headers: rateLimit.headers });
 }
 
-export async function DELETE(
-  _request: NextRequest,
+async function DELETE_handler(
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Rate limiting
+  const rateLimit = generalRateLimiter(getClientIdentifier(request));
+  if (!rateLimit.allowed) {
+    return new NextResponse(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: { ...rateLimit.headers, "Content-Type": "application/json" },
+    });
+  }
+
   const { id } = await params;
   const run = getScrapeRunById(Number(id));
-  if (!run) return Response.json({ error: "Not found" }, { status: 404 });
+  if (!run) return Response.json({ error: "Not found" }, { status: 404, headers: rateLimit.headers });
   deleteScrapeRun(Number(id));
-  return Response.json({ success: true });
+  return Response.json({ success: true }, { headers: rateLimit.headers });
 }
+
+export const GET = GET_handler;
+export const DELETE = DELETE_handler;

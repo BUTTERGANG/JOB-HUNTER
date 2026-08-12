@@ -1,7 +1,7 @@
 import { db } from "./index";
-import { jobs, resumes, analyses, settings, scrapeRuns, scrapeResults, jobAnalysis, blsWages } from "./schema";
+import { jobs, resumes, analyses, settings, scrapeRuns, scrapeResults, jobAnalysis, blsWages, bulkRuns, analysisRuns, govScrapeRuns, govScrapeResults, listingStatusHistory } from "./schema";
 import { eq, desc, inArray, sql } from "drizzle-orm";
-import type { NewJob, ScrapeResult } from "./schema";
+import type { NewJob, ScrapeResult, BulkRunRow, AnalysisRunRow, GovScrapeResult } from "./schema";
 import type { JobAnalysisResult } from "../ai/analyzeJobs";
 import { ensureDb } from "./ensure";
 import { getJobIdentityKey, type JobIdentityInput } from "../jobIdentity";
@@ -137,6 +137,21 @@ export function updateJob(id: number, data: Partial<NewJob>) {
 export function deleteJob(id: number) {
   const d = getDb();
   return d.delete(jobs).where(eq(jobs.id, id)).run();
+}
+
+export function recordListingStatusCheck(jobId: number, status: string, checkedAt: string) {
+  const d = getDb();
+  return d.insert(listingStatusHistory).values({ jobId, status, checkedAt }).run();
+}
+
+export function getListingStatusHistory(jobId: number) {
+  const d = getDb();
+  return d
+    .select()
+    .from(listingStatusHistory)
+    .where(eq(listingStatusHistory.jobId, jobId))
+    .orderBy(desc(listingStatusHistory.checkedAt))
+    .all();
 }
 
 // --- Resumes ---
@@ -376,6 +391,9 @@ export function saveJobAnalyses(
         estimatedSalaryMax: a.estimatedSalaryMax,
         salaryConfidence: a.salaryConfidence,
         socCode: a.socCode ?? null,
+        adjustedSalaryMin: a.adjustedSalaryMin ?? null,
+        adjustedSalaryMax: a.adjustedSalaryMax ?? null,
+        colIndex: a.colIndex ?? null,
       };
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
@@ -441,8 +459,174 @@ export function getScrapeResultsByRunId(runId: number) {
         estimatedSalaryMax: a.estimatedSalaryMax ?? null,
         salaryConfidence: a.salaryConfidence ?? null,
         socCode: a.socCode ?? null,
+        adjustedSalaryMin: a.adjustedSalaryMin ?? null,
+        adjustedSalaryMax: a.adjustedSalaryMax ?? null,
+        colIndex: a.colIndex ?? null,
         blsWage,
       },
     };
   });
+}
+
+// --- Bulk Runs (server-side all-states scan progress) ---
+
+export interface BulkRunProgress {
+  current?: string;
+  errors: { state: string; error: string }[];
+}
+
+export function createBulkRun(id: string, total: number, config: unknown) {
+  getDb()
+    .insert(bulkRuns)
+    .values({
+      id,
+      status: "running",
+      total,
+      done: 0,
+      jobsTotal: 0,
+      config: JSON.stringify(config),
+      progress: JSON.stringify({ errors: [] } satisfies BulkRunProgress),
+    })
+    .run();
+}
+
+export function updateBulkRun(
+  id: string,
+  fields: { status?: string; done?: number; jobsTotal?: number; progress?: BulkRunProgress }
+) {
+  getDb()
+    .update(bulkRuns)
+    .set({
+      updatedAt: sql`(datetime('now'))`,
+      ...(fields.status !== undefined ? { status: fields.status } : {}),
+      ...(fields.done !== undefined ? { done: fields.done } : {}),
+      ...(fields.jobsTotal !== undefined ? { jobsTotal: fields.jobsTotal } : {}),
+      ...(fields.progress !== undefined ? { progress: JSON.stringify(fields.progress) } : {}),
+    })
+    .where(eq(bulkRuns.id, id))
+    .run();
+}
+
+export function getBulkRun(id: string): BulkRunRow | null {
+  return getDb().select().from(bulkRuns).where(eq(bulkRuns.id, id)).get() ?? null;
+}
+
+export function getActiveBulkRun(): BulkRunRow | null {
+  return (
+    getDb()
+      .select()
+      .from(bulkRuns)
+      .where(eq(bulkRuns.status, "running"))
+      .orderBy(desc(bulkRuns.startedAt))
+      .get() ?? null
+  );
+}
+
+// ── Analysis run tracking ────────────────────────────────────────────────────
+
+export function createAnalysisRun(id: string, total: number): void {
+  getDb().insert(analysisRuns).values({ id, total, analyzed: 0, errors: 0, status: "running" }).run();
+}
+
+export function updateAnalysisRun(
+  id: string,
+  fields: { status?: string; analyzed?: number; errors?: number }
+) {
+  getDb()
+    .update(analysisRuns)
+    .set({
+      updatedAt: sql`(datetime('now'))`,
+      ...(fields.status !== undefined ? { status: fields.status } : {}),
+      ...(fields.analyzed !== undefined ? { analyzed: fields.analyzed } : {}),
+      ...(fields.errors !== undefined ? { errors: fields.errors } : {}),
+    })
+    .where(eq(analysisRuns.id, id))
+    .run();
+}
+
+export function getAnalysisRun(id: string): AnalysisRunRow | null {
+  return getDb().select().from(analysisRuns).where(eq(analysisRuns.id, id)).get() ?? null;
+}
+
+export function getActiveAnalysisRun(): AnalysisRunRow | null {
+  return (
+    getDb()
+      .select()
+      .from(analysisRuns)
+      .where(eq(analysisRuns.status, "running"))
+      .orderBy(desc(analysisRuns.startedAt))
+      .get() ?? null
+  );
+}
+
+// ── Government job scrape runs ──────────────────────────────────────────────
+
+export interface GovScrapeResultInput {
+  title: string;
+  company?: string;
+  location: string | null;
+  salary: string | null;
+  datePosted: string | null;
+  url: string | null;
+  description: string | null;
+}
+
+export function saveGovScrapeRun(
+  keyword: string,
+  location: string,
+  results: GovScrapeResultInput[]
+) {
+  const d = getDb();
+  const run = d
+    .insert(govScrapeRuns)
+    .values({
+      keyword,
+      location,
+      totalFound: results.length,
+    })
+    .returning()
+    .get();
+
+  if (results.length > 0) {
+    d.insert(govScrapeResults)
+      .values(
+        results.map((r) => ({
+          scrapeRunId: run.id,
+          title: r.title,
+          company: r.company ?? "State of Indiana",
+          location: r.location,
+          salary: r.salary,
+          datePosted: r.datePosted,
+          url: r.url,
+          description: r.description,
+        }))
+      )
+      .run();
+  }
+
+  return run;
+}
+
+export function getAllGovScrapeRuns() {
+  const d = getDb();
+  return d.select().from(govScrapeRuns).orderBy(desc(govScrapeRuns.createdAt)).all();
+}
+
+export function getGovScrapeRunById(id: number) {
+  const d = getDb();
+  return d.select().from(govScrapeRuns).where(eq(govScrapeRuns.id, id)).get() ?? null;
+}
+
+export function getGovScrapeResultsByRunId(runId: number): (GovScrapeResult & { company: string })[] {
+  const d = getDb();
+  return d
+    .select()
+    .from(govScrapeResults)
+    .where(eq(govScrapeResults.scrapeRunId, runId))
+    .all();
+}
+
+export function deleteGovScrapeRun(id: number) {
+  const d = getDb();
+  return d.delete(govScrapeRuns).where(eq(govScrapeRuns.id, id)).run();
 }

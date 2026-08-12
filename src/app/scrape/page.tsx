@@ -23,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Spinner } from "@/components/ui/spinner";
+import { US_STATES } from "@/lib/usStates";
 import { getJobIdentityKey } from "@/lib/jobIdentity";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -131,16 +132,6 @@ const HOURS_OPTIONS = [
   { value: 168, label: "Last 7 days" },
   { value: 336, label: "Last 2 weeks" },
   { value: 720, label: "Last 30 days" },
-];
-
-const US_STATES = [
-  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware",
-  "Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky",
-  "Louisiana","Maine","Maryland","Massachusetts","Michigan","Minnesota","Mississippi",
-  "Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey","New Mexico",
-  "New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania",
-  "Rhode Island","South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont",
-  "Virginia","Washington","West Virginia","Wisconsin","Wyoming","District of Columbia",
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -415,13 +406,17 @@ function ResultsTable({
         }),
       });
       const data = await res.json().catch(() => ({}));
+      // A 201 with created:0 means the row was rejected (e.g. missing identity),
+      // not added — surface that as an error instead of a false success tick.
       const nextState: AddState = res.ok
-        ? data.skippedDuplicates > 0
-          ? "duplicate"
-          : "added"
+        ? data.created > 0
+          ? "added"
+          : data.skippedDuplicates > 0
+            ? "duplicate"
+            : "error"
         : "error";
       setAddStates((prev) => new Map(prev).set(key, nextState));
-      if (!res.ok) {
+      if (nextState === "error") {
         setTimeout(() => setAddStates((prev) => { const m = new Map(prev); m.delete(key); return m; }), 3000);
       }
     } catch {
@@ -742,24 +737,38 @@ function PastScrapes() {
   const [detail, setDetail] = useState<ScrapeRunDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/scrapes")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load");
+        return r.json();
+      })
       .then((data) => { setRuns(data); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(() => {
+        setLoadError("Could not load past scrapes. Please refresh to try again.");
+        setLoading(false);
+      });
   }, []);
 
   async function deleteRun(id: number, e: React.MouseEvent) {
     e.stopPropagation();
     if (!window.confirm("Delete this scrape run and all its results? This cannot be undone.")) return;
     setDeletingId(id);
+    setDeleteError(null);
     try {
       const res = await fetch(`/api/scrapes/${id}`, { method: "DELETE" });
       if (res.ok) {
         setRuns((prev) => prev.filter((r) => r.id !== id));
         if (expandedId === id) { setExpandedId(null); setDetail(null); }
+      } else {
+        setDeleteError("Could not delete that scrape run — please try again.");
       }
+    } catch {
+      setDeleteError("Network error deleting scrape run — please try again.");
     } finally {
       setDeletingId(null);
     }
@@ -773,11 +782,18 @@ function PastScrapes() {
     }
     setExpandedId(id);
     setDetail(null);
+    setDetailError(null);
     setLoadingDetail(true);
-    const res = await fetch(`/api/scrapes/${id}`);
-    const data = await res.json();
-    setDetail(data);
-    setLoadingDetail(false);
+    try {
+      const res = await fetch(`/api/scrapes/${id}`);
+      if (!res.ok) throw new Error("Failed to load detail");
+      const data = await res.json();
+      setDetail(data);
+    } catch {
+      setDetailError("Could not load results for this run.");
+    } finally {
+      setLoadingDetail(false);
+    }
   }
 
   if (loading) {
@@ -785,6 +801,16 @@ function PastScrapes() {
       <div className="flex items-center justify-center h-40">
         <Spinner />
       </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Card>
+        <CardContent className="pt-6 text-center text-sm text-destructive" role="alert">
+          {loadError}
+        </CardContent>
+      </Card>
     );
   }
 
@@ -800,6 +826,11 @@ function PastScrapes() {
 
   return (
     <div className="space-y-3">
+      {deleteError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive" role="alert">
+          {deleteError}
+        </div>
+      )}
       {runs.map((run) => {
         const searches = parseSearches(run.searches);
         const metrics = parseMetrics(run.metrics);
@@ -873,6 +904,10 @@ function PastScrapes() {
                   <div className="flex items-center justify-center py-8">
                     <Spinner />
                   </div>
+                ) : detailError ? (
+                  <p className="text-sm text-destructive py-4 text-center" role="alert">
+                    {detailError}
+                  </p>
                 ) : detail ? (
                   <>
                     {metrics && (
@@ -907,17 +942,67 @@ function PastScrapes() {
 
 // ─── Bulk Market Scan ─────────────────────────────────────────────────────────
 
+/**
+ * Normalize a timestamp for `new Date()`. The server stores `datetime('now')` as
+ * `YYYY-MM-DD HH:MM:SS` (UTC, no zone marker), which JS would otherwise parse as
+ * local time — throwing off elapsed/ETA after a reconnect. Client-set values are
+ * already ISO (contain "T") and pass through untouched.
+ */
+function toClientIso(ts: string | null | undefined): string | null {
+  if (!ts) return null;
+  return ts.includes("T") ? ts : ts.replace(" ", "T") + "Z";
+}
+
+/** Format a millisecond duration as "1h 4m" / "3m 20s" / "45s". */
+function fmtDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m >= 60) return `${Math.floor(m / 60)}h ${m % 60}m`;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+// Per-site result caps for max coverage without LinkedIn's 3–7s/page delay
+// dominating runtime: push Indeed (fast), keep LinkedIn modest.
+const DEFAULT_RESULTS_BY_SITE: Record<string, number> = {
+  indeed: 300,
+  linkedin: 75,
+  google: 100,
+  glassdoor: 100,
+  zip_recruiter: 100,
+};
+
+interface BulkRunStatus {
+  runId: string;
+  status: string;
+  total: number;
+  done: number;
+  jobsTotal: number;
+  startedAt: string;
+  updatedAt: string;
+  current: string | null;
+  errors: { state: string; error: string }[];
+}
+
 function BulkMarketScan() {
   const [bulkSites, setBulkSites] = useState<string[]>(["linkedin", "indeed", "google"]);
-  const [bulkResults, setBulkResults] = useState(100);
+  const [bulkResultsBySite, setBulkResultsBySite] = useState<Record<string, number>>(DEFAULT_RESULTS_BY_SITE);
   const [bulkHours, setBulkHours] = useState(168);
-  const [bulkTerm, setBulkTerm] = useState("");
-  const [phase, setPhase] = useState<"idle" | "running" | "done" | "error">("idle");
-  const [progress, setProgress] = useState({ done: 0, total: 0, current: "" });
+  const [bulkTerm, setBulkTerm] = useState("software engineer");
+  const [bulkBroadSearch, setBulkBroadSearch] = useState(true);
+  const [bulkConcurrency, setBulkConcurrency] = useState(10);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"idle" | "running" | "done" | "error" | "cancelled">("idle");
   const [resultCount, setResultCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [batchErrors, setBatchErrors] = useState<{ state: string; error: string }[]>([]);
   const [showErrors, setShowErrors] = useState(false);
+  const [current, setCurrent] = useState<string | null>(null);
+  const [startedAt, setStartedAt] = useState<string | null>(null);
+  const [now, setNow] = useState(0);
+  // Server-tracked progress: how many states have finished out of the total.
+  const [doneStates, setDoneStates] = useState(0);
+  const [totalStates, setTotalStates] = useState(US_STATES.length);
 
   function toggleBulkSite(id: string) {
     setBulkSites((prev) =>
@@ -925,70 +1010,140 @@ function BulkMarketScan() {
     );
   }
 
+  // On mount: reconnect to an in-progress run so navigating away and back doesn't
+  // lose the progress view (the run itself lives server-side). Prefer the id this
+  // browser started; otherwise adopt any run the server still reports as active.
+  useEffect(() => {
+    const savedRunId = localStorage.getItem("bulkRunId");
+    const url = savedRunId ? `/api/scrape/bulk?runId=${savedRunId}` : `/api/scrape/bulk`;
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        const run: BulkRunStatus | null = data.run;
+        const terminal = run && (run.status === "done" || run.status === "error" || run.status === "cancelled");
+        // Without a saved id, only adopt a still-running run (don't resurrect an old
+        // finished scan on every fresh page load).
+        const adopt = run && (run.status === "running" || (savedRunId && terminal));
+        if (adopt) {
+          setRunId(run.runId);
+          localStorage.setItem("bulkRunId", run.runId);
+          setPhase(run.status === "running" ? "running" : (run.status as "done" | "error" | "cancelled"));
+          setResultCount(run.jobsTotal);
+          setDoneStates(run.done ?? 0);
+          setTotalStates(run.total || US_STATES.length);
+          setBatchErrors(run.errors ?? []);
+          setCurrent(run.current);
+          setStartedAt(toClientIso(run.startedAt));
+          if (run.status === "running") setNow(Date.now());
+        } else if (savedRunId) {
+          localStorage.removeItem("bulkRunId");
+        }
+      })
+      .catch(() => { if (savedRunId) localStorage.removeItem("bulkRunId"); });
+  }, []);
+
+  // Poll while running.
+  useEffect(() => {
+    if (phase !== "running" || !runId) return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/scrape/bulk?runId=${runId}`);
+        const data = await res.json();
+        if (!data.run) {
+          setPhase("error");
+          setError("Run not found on server.");
+          return;
+        }
+        const run: BulkRunStatus = data.run;
+        setResultCount(run.jobsTotal);
+        setDoneStates(run.done ?? 0);
+        setTotalStates(run.total || US_STATES.length);
+        setBatchErrors(run.errors ?? []);
+        setCurrent(run.current);
+        setNow(Date.now());
+        if (run.status === "done" || run.status === "error" || run.status === "cancelled") {
+          setPhase(run.status);
+          if (run.status === "error") setError("Server-side scan failed. See errors below.");
+        }
+      } catch {
+        // transient — keep polling
+      }
+    };
+    poll();
+    const t = setInterval(poll, 2500);
+    return () => clearInterval(t);
+  }, [phase, runId]);
+
+  // Tick once a second while running so the elapsed/ETA readout stays live.
+  useEffect(() => {
+    if (phase !== "running") return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [phase]);
+
   async function runBulkScan() {
-    setPhase("running");
     setError(null);
     setResultCount(0);
-    setProgress({ done: 0, total: US_STATES.length, current: US_STATES[0] });
+    setDoneStates(0);
+    setTotalStates(US_STATES.length);
     setBatchErrors([]);
+    setCurrent(null);
+    setShowErrors(false);
 
-    // Run state-by-state for clearer error reporting and better resilience
-    let totalJobs = 0;
-    const errors: { state: string; error: string }[] = [];
-
-    for (let i = 0; i < US_STATES.length; i++) {
-      const state = US_STATES[i];
-      setProgress({
-        done: i,
-        total: US_STATES.length,
-        current: state,
+    try {
+      const res = await fetch("/api/scrape/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sites: bulkSites,
+          resultsBySite: Object.fromEntries(
+            bulkSites.map((s) => [s, bulkResultsBySite[s] ?? 50])
+          ),
+          hours: bulkHours,
+          term: bulkTerm,
+          broadSearch: bulkBroadSearch,
+          concurrency: bulkConcurrency,
+        }),
       });
-
-      try {
-        const res = await fetch("/api/scrape", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            searches: [{ term: bulkTerm.trim(), location: state }],
-            sites: bulkSites,
-            results: bulkResults,
-            hours: bulkHours,
-            skipAnalysis: true,
-            skipDedupe: true,
-          }),
-          signal: AbortSignal.timeout(90_000),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          const count = data.count ?? 0;
-          totalJobs += count;
-          setResultCount(totalJobs);
-          // Report states that returned 0 jobs (with reason if available)
-          if (count === 0) {
-            const reason = data.dedupe
-              ? `0 of ${data.dedupe.inputCount} jobs were new (rest deduped or blocked)`
-              : "no results returned";
-            errors.push({ state, error: reason });
-            setBatchErrors([...errors]);
-          }
-        } else {
-          errors.push({ state, error: data.error ?? `HTTP ${res.status}` });
-          setBatchErrors([...errors]);
-        }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        errors.push({ state, error: msg });
-        setBatchErrors([...errors]);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Failed to start bulk scan.");
+        setPhase("error");
+        return;
       }
+      setRunId(data.runId);
+      localStorage.setItem("bulkRunId", data.runId);
+      setPhase("running");
+      setStartedAt(new Date().toISOString());
+      setNow(Date.now());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start bulk scan.");
+      setPhase("error");
     }
+  }
 
-    setProgress({ done: US_STATES.length, total: US_STATES.length, current: "Done" });
-    setBatchErrors(errors);
-    setPhase("done");
+  async function cancelBulkScan() {
+    if (!runId) return;
+    try {
+      await fetch(`/api/scrape/bulk?runId=${runId}`, { method: "DELETE" });
+      setPhase("cancelled");
+      localStorage.removeItem("bulkRunId");
+    } catch {
+      // best-effort
+    }
   }
 
   const canRun = phase !== "running" && bulkSites.length > 0;
-  const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+  // Progress is driven by the server's per-state counter so the bar reflects real
+  // completion (N of 51 states), not just elapsed time.
+  const total = totalStates || US_STATES.length;
+  const done = Math.min(doneStates, total);
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const elapsedMs = startedAt ? Math.max(0, now - new Date(startedAt).getTime()) : 0;
+  const etaMs =
+    phase === "running" && done > 0 && done < total
+      ? (elapsedMs / done) * (total - done)
+      : null;
 
   return (
     <Card>
@@ -998,19 +1153,33 @@ function BulkMarketScan() {
       <CardContent className="space-y-5">
         <p className="text-sm text-muted-foreground">
           Scrape jobs across all US states for market analytics. Skips AI analysis for speed.
-          Uses location-only or keyword + location searches with high result counts. Takes ~15–30 minutes.
+          Runs targeted + broad (location-only) searches per state for maximum coverage.
+          Server-side background run survives navigation and reload.
         </p>
 
-        {/* Search term */}
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">
-            Search term (optional — blank = all jobs in each state)
+        {/* Search term + broad search toggle */}
+        <div className="space-y-2">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">
+              Search term (optional — blank = all jobs in each state)
+            </label>
+            <Input
+              value={bulkTerm}
+              onChange={(e) => setBulkTerm(e.target.value)}
+              placeholder="e.g. software engineer (or leave blank for everything)"
+            />
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={bulkBroadSearch}
+              onChange={(e) => setBulkBroadSearch(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            <span className="text-sm">
+              Also search location-only (gets ~200 Indeed results per state vs ~50 with a term)
+            </span>
           </label>
-          <Input
-            value={bulkTerm}
-            onChange={(e) => setBulkTerm(e.target.value)}
-            placeholder="e.g. software engineer (or leave blank for everything)"
-          />
         </div>
 
         {/* Sites */}
@@ -1032,50 +1201,91 @@ function BulkMarketScan() {
         </div>
 
         {/* Options */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-4">
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Results per site per state</label>
-            <Input
-              type="number"
-              min={10}
-              max={200}
-              value={bulkResults}
-              onChange={(e) => setBulkResults(Number(e.target.value))}
-            />
+            <label className="text-xs text-muted-foreground block mb-1">
+              Results per site per search — Indeed is fast and returns the most; LinkedIn is
+              slow (3–7s/page) so keep it lower. Caps at ~1000/site.
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {SITES.filter((s) => bulkSites.includes(s.id)).map((s) => (
+                <div key={s.id}>
+                  <label htmlFor={`res-${s.id}`} className="text-xs block mb-1">{s.label}</label>
+                  <Input
+                    id={`res-${s.id}`}
+                    type="number"
+                    min={5}
+                    max={1000}
+                    value={bulkResultsBySite[s.id] ?? 50}
+                    onChange={(e) =>
+                      setBulkResultsBySite((prev) => ({ ...prev, [s.id]: Number(e.target.value) }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Posted within</label>
-            <Select value={String(bulkHours)} onValueChange={(v) => v && setBulkHours(Number(v))}>
-              <SelectTrigger>
-                <SelectValue>
-                  {HOURS_OPTIONS.find((o) => o.value === bulkHours)?.label ?? "Last 7 days"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {HOURS_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={String(opt.value)}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-2 gap-4 max-w-sm">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Posted within</label>
+              <Select value={String(bulkHours)} onValueChange={(v) => v && setBulkHours(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue>
+                    {HOURS_OPTIONS.find((o) => o.value === bulkHours)?.label ?? "Last 7 days"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {HOURS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={String(opt.value)}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">
+                Concurrency (states at once)
+              </label>
+              <Input
+                type="number"
+                min={1}
+                max={16}
+                value={bulkConcurrency}
+                onChange={(e) => setBulkConcurrency(Math.min(16, Math.max(1, Number(e.target.value) || 10)))}
+                title="How many states to scrape simultaneously. 10 recommended for M1/16GB."
+              />
+            </div>
           </div>
         </div>
 
-        {/* Run button */}
+        {/* Run / Cancel buttons */}
         <div className="flex items-center gap-3">
           <Button onClick={runBulkScan} disabled={!canRun} size="lg">
             {phase === "running" ? "Scanning…" : "Run All States"}
           </Button>
+          {phase === "running" && (
+            <Button onClick={cancelBulkScan} variant="destructive" size="lg">
+              Cancel
+            </Button>
+          )}
           <span className="text-xs text-muted-foreground">
-            {US_STATES.length} states × {bulkSites.length} sites × {bulkResults} results = up to{" "}
-            {US_STATES.length * bulkSites.length * bulkResults} listings
+            {US_STATES.length} states ×{" "}
+            {(bulkTerm.trim() ? 1 : 0) + (bulkBroadSearch ? 1 : 0) || 1} searches × per-site caps = up to{" "}
+            {US_STATES.length *
+              ((bulkTerm.trim() ? 1 : 0) + (bulkBroadSearch ? 1 : 0) || 1) *
+              bulkSites.reduce((sum, s) => sum + (bulkResultsBySite[s] ?? 50), 0)}{" "}
+            listings (before dedupe)
           </span>
         </div>
 
         {/* Progress */}
         {phase === "running" && (
           <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm font-medium">
+              <span>{done} / {total} states</span>
+              <span className="tabular-nums">{pct}%</span>
+            </div>
             <div className="w-full bg-muted rounded-full h-2.5 overflow-hidden">
               <div
                 className="bg-primary h-2.5 rounded-full transition-all duration-300"
@@ -1083,19 +1293,31 @@ function BulkMarketScan() {
               />
             </div>
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>State {progress.done + 1} of {progress.total}: {progress.current}</span>
-              <span>{pct}% · {resultCount} jobs saved so far</span>
+              <span>{current ? `Latest: ${current}` : "Starting…"}</span>
+              <span>{resultCount} jobs saved so far</span>
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Elapsed {fmtDuration(elapsedMs)}</span>
+              <span>
+                {etaMs != null
+                  ? `~${fmtDuration(etaMs)} remaining`
+                  : done === 0
+                    ? "estimating…"
+                    : "finishing…"}
+              </span>
             </div>
           </div>
         )}
 
         {/* Results */}
-        {phase === "done" && (
+        {(phase === "done" || phase === "cancelled") && (
           <div className="space-y-3">
             <div className={`p-3 rounded-md text-sm ${resultCount > 0 ? "bg-green-50 border border-green-200 text-green-800 dark:bg-green-950 dark:border-green-800 dark:text-green-300" : "bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-300"}`}>
-              {resultCount > 0
-                ? `Done! ${resultCount} jobs saved across ${US_STATES.length} states. AI analysis was skipped — navigate to Market Analysis to see the data.`
-                : `Scan completed but no jobs were returned across ${US_STATES.length} states. See errors below for details.`}
+              {phase === "cancelled"
+                ? `Cancelled. ${resultCount} jobs were saved before stopping.`
+                : resultCount > 0
+                  ? `Done! ${resultCount} jobs saved across ${US_STATES.length} states. AI analysis was skipped — navigate to Market Analysis to see the data.`
+                  : `Scan completed but no jobs were returned across ${US_STATES.length} states. See errors below for details.`}
             </div>
 
             {/* Per-state errors */}
@@ -1152,6 +1374,7 @@ function NewScrape() {
   const [jobs, setJobs] = useState<ScrapedJob[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ created: number; skippedDuplicates?: number; errors: string[] } | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
@@ -1183,6 +1406,7 @@ function NewScrape() {
   async function runScrape() {
     setPhase("scraping");
     setError(null);
+    setSaveWarning(null);
     setJobs([]);
     setSelected(new Set());
     setImportResult(null);
@@ -1192,10 +1416,13 @@ function NewScrape() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ searches, sites, results, hours }),
-        signal: AbortSignal.timeout(130_000),
+        // Server allows up to 120s for the scrape subprocess plus unbounded
+        // AI analysis time afterward (route maxDuration is 300s) — give the
+        // client enough headroom to not abort before a real response lands.
+        signal: AbortSignal.timeout(290_000),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(data.error || "Scrape failed");
@@ -1211,6 +1438,8 @@ function NewScrape() {
       });
       setJobs(sorted);
       setSelected(new Set(sorted.map((job: ScrapedJob, i: number) => jobKey(job, i))));
+      // Scrape ran but the server couldn't persist the run to history.
+      if (data.saveWarning) setSaveWarning(data.saveWarning);
       setPhase("done");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Request timed out or failed");
@@ -1390,6 +1619,13 @@ function NewScrape() {
         <div className="p-4 rounded-md bg-red-50 border border-red-200 dark:bg-red-950 dark:border-red-800">
           <p className="text-sm font-medium text-red-700 dark:text-red-300">Scrape failed</p>
           <p className="text-xs text-red-500 mt-1">{error}</p>
+        </div>
+      )}
+
+      {phase === "done" && saveWarning && (
+        <div className="p-4 rounded-md bg-amber-50 border border-amber-200 dark:bg-amber-950 dark:border-amber-800" role="alert">
+          <p className="text-sm font-medium text-amber-700 dark:text-amber-300">Results not saved to history</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">{saveWarning}</p>
         </div>
       )}
 

@@ -2,49 +2,93 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
+import {
+  LayoutDashboard,
+  Briefcase,
+  PlusCircle,
+  BarChart3,
+  Search,
+  FileSearch,
+  Landmark,
+  PieChart,
+  Upload,
+  Settings,
+  Sun,
+  Moon,
+  type LucideIcon,
+} from "lucide-react";
 
-const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboardIcon },
-  { href: "/jobs", label: "Jobs", icon: BriefcaseIcon },
-  { href: "/jobs/new", label: "Add Job", icon: PlusCircleIcon },
-  { href: "/jobs/compare", label: "Compare", icon: CompareIcon },
-  { href: "/scrape", label: "Scrape", icon: ScrapeIcon },
-  { href: "/analysis", label: "Market Analysis", icon: ChartPieIcon },
-  { href: "/import", label: "Import CSV", icon: UploadIcon },
-  { href: "/settings", label: "Settings", icon: SettingsIcon },
+const navGroups: { label: string; items: { href: string; label: string; icon: LucideIcon }[] }[] = [
+  {
+    label: "Workspace",
+    items: [
+      { href: "/", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/jobs", label: "Jobs", icon: Briefcase },
+      { href: "/jobs/new", label: "Add Job", icon: PlusCircle },
+      { href: "/jobs/compare", label: "Compare", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { href: "/scrape", label: "Scrape", icon: Search },
+      { href: "/analyze", label: "Analyze Job", icon: FileSearch },
+      { href: "/government-postings", label: "Government Postings", icon: Landmark },
+      { href: "/analysis", label: "Market Analysis", icon: PieChart },
+      { href: "/import", label: "Import CSV", icon: Upload },
+    ],
+  },
+  {
+    label: "System",
+    items: [{ href: "/settings", label: "Settings", icon: Settings }],
+  },
 ];
 
-const mobileNav = [
-  { href: "/", label: "Home", icon: LayoutDashboardIcon },
-  { href: "/jobs", label: "Jobs", icon: BriefcaseIcon },
-  { href: "/jobs/new", label: "Add", icon: PlusCircleIcon },
-  { href: "/analysis", label: "Market", icon: ChartPieIcon },
-  { href: "/scrape", label: "Scrape", icon: ScrapeIcon },
-  { href: "/settings", label: "Settings", icon: SettingsIcon },
+const mobileNav: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/", label: "Home", icon: LayoutDashboard },
+  { href: "/jobs", label: "Jobs", icon: Briefcase },
+  { href: "/jobs/new", label: "Add", icon: PlusCircle },
+  { href: "/government-postings", label: "Gov Jobs", icon: Landmark },
+  { href: "/analysis", label: "Market", icon: PieChart },
+  { href: "/analyze", label: "Analyze", icon: FileSearch },
+  { href: "/scrape", label: "Scrape", icon: Search },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
+
+// Shared theme store. Both Sidebar and MobileNav subscribe to the SAME source
+// of truth via useSyncExternalStore, so toggling in one instantly re-renders
+// the other — previously each held its own useState and could drift out of sync.
+const themeListeners = new Set<() => void>();
+
+function isDark(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.documentElement.classList.contains("dark");
+}
+
+function subscribe(cb: () => void) {
+  themeListeners.add(cb);
+  return () => themeListeners.delete(cb);
+}
+
+function toggleTheme() {
+  const next = !isDark();
+  if (next) {
+    document.documentElement.classList.add("dark");
+    localStorage.setItem("theme", "dark");
+  } else {
+    document.documentElement.classList.remove("dark");
+    localStorage.setItem("theme", "light");
+  }
+  themeListeners.forEach((cb) => cb());
+}
 
 function useTheme() {
-  const [dark, setDark] = useState(false);
-
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains("dark"));
-  }, []);
-
-  function toggle() {
-    const next = !dark;
-    setDark(next);
-    if (next) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-    }
-  }
-
-  return { dark, toggle };
+  // Server snapshot is always false; the class is applied on the client before
+  // hydration by the inline theme script, and useSyncExternalStore reconciles.
+  const dark = useSyncExternalStore(subscribe, isDark, () => false);
+  return { dark, toggle: toggleTheme };
 }
 
 export function Sidebar() {
@@ -52,47 +96,57 @@ export function Sidebar() {
   const { dark, toggle } = useTheme();
 
   return (
-    <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-border bg-card">
+    <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div className="flex flex-col flex-1 min-h-0">
-        <div className="flex items-center h-16 px-6 border-b border-border">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">JH</span>
+        <div className="flex items-center justify-between h-20 px-5 border-b border-sidebar-border">
+          <Link href="/" className="flex items-center gap-3 group">
+            <div className="relative w-9 h-9 rounded-xl bg-sidebar-primary text-sidebar-primary-foreground flex items-center justify-center shadow-[0_0_24px_color-mix(in_oklch,var(--sidebar-primary)_35%,transparent)]">
+              <span className="font-black text-xs tracking-tight">JH</span>
+              <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-sidebar-primary ring-2 ring-sidebar" />
             </div>
-            <span className="font-semibold text-lg">JobHunt</span>
+            <div>
+              <span className="block font-semibold tracking-tight text-sidebar-foreground">JobHunt</span>
+              <span className="block text-[0.65rem] uppercase tracking-[0.18em] text-sidebar-foreground/55">Signal desk</span>
+            </div>
           </Link>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map((item) => {
-            const isActive =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-6">
+          {navGroups.map((group) => (
+            <div key={group.label}>
+              <p className="px-3 mb-2 text-[0.65rem] uppercase tracking-[0.2em] text-sidebar-foreground/45">{group.label}</p>
+              <div className="space-y-1">
+                {group.items.map((item) => {
+                  const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        "relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all focus-visible:ring-sidebar-primary",
+                        isActive
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
+                          : "text-sidebar-foreground/65 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
+                      )}
+                    >
+                      {isActive && <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-sidebar-primary" />}
+                      <Icon className={cn("h-4 w-4", isActive ? "text-sidebar-primary" : "text-sidebar-foreground/50")} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
-        <div className="px-3 py-4 border-t border-border">
+        <div className="px-3 py-4 border-t border-sidebar-border">
+          <div className="px-3 pb-3 text-[0.7rem] text-sidebar-foreground/45">Stay close to the next right move.</div>
           <button
             onClick={toggle}
-            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors w-full"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors w-full focus-visible:ring-sidebar-primary"
             aria-label="Toggle dark mode"
           >
-            {dark ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
+            {dark ? <Sun className="h-4 w-4 text-sidebar-primary" /> : <Moon className="h-4 w-4" />}
             {dark ? "Light mode" : "Dark mode"}
           </button>
         </div>
@@ -106,135 +160,35 @@ export function MobileNav() {
   const { dark, toggle } = useTheme();
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t border-border bg-card z-50">
-      <div className="flex justify-around py-2">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t border-border/80 bg-card/95 backdrop-blur-lg z-50 shadow-[0_-8px_24px_color-mix(in_oklch,var(--foreground)_8%,transparent)]">
+      <div className="flex items-stretch gap-1 overflow-x-auto px-2 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {mobileNav.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
+          const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
           const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex flex-col items-center gap-1 px-3 py-1 text-xs",
-                isActive
-                  ? "text-primary"
-                  : "text-muted-foreground"
+                "relative flex min-w-[4.25rem] shrink-0 flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[0.65rem] font-medium transition-colors focus-visible:ring-ring",
+                isActive ? "bg-accent/60 text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
             >
-              <Icon className="h-5 w-5" />
+              {isActive && <span className="absolute left-1/2 top-0 h-0.5 w-5 -translate-x-1/2 rounded-full bg-primary" />}
+              <Icon className={cn("h-5 w-5", isActive && "text-primary")} />
               {item.label}
             </Link>
           );
         })}
         <button
           onClick={toggle}
-          className="flex flex-col items-center gap-1 px-3 py-1 text-xs text-muted-foreground"
+          className="relative flex min-w-[4.25rem] shrink-0 flex-col items-center gap-1 rounded-lg px-2 py-1.5 text-[0.65rem] font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring"
           aria-label="Toggle dark mode"
         >
-          {dark ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
+          {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           {dark ? "Light" : "Dark"}
         </button>
       </div>
     </nav>
-  );
-}
-
-function LayoutDashboardIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect width="7" height="9" x="3" y="3" rx="1" />
-      <rect width="7" height="5" x="14" y="3" rx="1" />
-      <rect width="7" height="9" x="14" y="12" rx="1" />
-      <rect width="7" height="5" x="3" y="16" rx="1" />
-    </svg>
-  );
-}
-
-function BriefcaseIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-      <rect width="20" height="14" x="2" y="6" rx="2" />
-    </svg>
-  );
-}
-
-function PlusCircleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M8 12h8" />
-      <path d="M12 8v8" />
-    </svg>
-  );
-}
-
-function CompareIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" x2="18" y1="20" y2="10" />
-      <line x1="12" x2="12" y1="20" y2="4" />
-      <line x1="6" x2="6" y1="20" y2="14" />
-    </svg>
-  );
-}
-
-function UploadIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" x2="12" y1="3" y2="15" />
-    </svg>
-  );
-}
-
-function ScrapeIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" />
-      <path d="m21 21-4.3-4.3" />
-      <path d="M11 8v6" />
-      <path d="M8 11h6" />
-    </svg>
-  );
-}
-
-function SettingsIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function MoonIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-    </svg>
-  );
-}
-
-function ChartPieIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
-      <path d="M22 12A10 10 0 0 0 12 2v10z" />
-    </svg>
-  );
-}
-
-function SunIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-    </svg>
   );
 }

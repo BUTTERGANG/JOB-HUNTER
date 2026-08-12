@@ -10,6 +10,7 @@ Install:     pip install -U python-jobspy
 import argparse
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -43,30 +44,65 @@ DEFAULT_CONFIG = {
 
 
 def run_search(search: dict, config: dict) -> "pd.DataFrame":
-    frames = []
-    for site in config["sites"]:
-        print(f"  [{site}] {search['term']} @ {search['location']}", file=sys.stderr, flush=True)
+    # Proxies (optional). JobSpy round-robins through the list per site, which is
+    # the documented fix for LinkedIn's ~10-pages-per-IP block and Indeed's
+    # single-IP degradation. Format: "user:pass@host:port", "host:port", or "localhost".
+    proxies = config.get("proxies") or None
+    # Per-site result caps let us push fast sites (Indeed) hard while keeping slow
+    # ones (LinkedIn, ~3-7s/page) modest. Falls back to the shared "results" value.
+    results_by_site = config.get("results_by_site") or {}
+    sites = config["sites"]
+
+    def scrape_one(site):
+        """Scrape a single site. Returns (DataFrame|None, list[str] log lines).
+        Lines are returned (not printed) so the caller can emit each site's lines
+        contiguously — keeping stderr parseable despite concurrent execution."""
+        lines = [f"  [{site}] {search['term']} @ {search['location']}"]
         try:
             kwargs = dict(
                 site_name=[site],
                 search_term=search["term"],
                 location=search["location"],
-                results_wanted=config.get("results", 25),
+                results_wanted=results_by_site.get(site) or config.get("results", 25),
                 hours_old=config.get("hours", 168),
                 country_indeed=config.get("country", "USA"),
                 enforce_annual_salary=True,
+                distance=config.get("distance", 50),
             )
-            if site == "linkedin":
+            # google_search_term override — used when search_term is empty so
+            # Google doesn't get a " jobs near {loc}" query (leading space, no
+            # keyword → 0 results). See scrapeRunner.ts for the trigger logic.
+            google_search_term = config.get("google_search_term")
+            if google_search_term:
+                kwargs["google_search_term"] = google_search_term
+            if proxies:
+                kwargs["proxies"] = proxies
+            if site == "linkedin" and config.get("fetch_descriptions", True):
                 kwargs["linkedin_fetch_description"] = True
             is_remote = config.get("is_remote")
             if isinstance(is_remote, bool):
                 kwargs["is_remote"] = is_remote
             df = scrape_jobs(**kwargs)
-            print(f"    → {len(df)} results", file=sys.stderr, flush=True)
-            if not df.empty:
-                frames.append(df)
+            lines.append(f"    → {len(df)} results")
+            return (df if not df.empty else None, lines)
         except Exception as e:
-            print(f"    ✗ {site} failed: {e}", file=sys.stderr, flush=True)
+            lines.append(f"    ✗ {site} failed: {e}")
+            return (None, lines)
+
+    # Scrape sites concurrently so LinkedIn's per-page sleep overlaps the fast
+    # sites instead of stacking after them. Each scrape_jobs() call is independent
+    # (fresh scraper instances), so this is thread-safe.
+    frames = []
+    with ThreadPoolExecutor(max_workers=max(1, len(sites))) as ex:
+        futures = [ex.submit(scrape_one, s) for s in sites]
+        for fut in as_completed(futures):
+            df, lines = fut.result()
+            # Emit this site's lines together (marker then result) so the
+            # line-based stderr parser attributes counts to the right site.
+            for ln in lines:
+                print(ln, file=sys.stderr, flush=True)
+            if df is not None:
+                frames.append(df)
 
     if not frames:
         return pd.DataFrame()
