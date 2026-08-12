@@ -40,7 +40,10 @@ export default function ComparePage() {
 function CompareContent() {
   const searchParams = useSearchParams();
   const [allJobs, setAllJobs] = useState<Job[]>([]);
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectedIds, setSelectedIds] = useState<number[]>(() => {
+    const ids = searchParams.get("ids");
+    return ids ? ids.split(",").map(Number).filter(Boolean) : [];
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,13 +62,6 @@ function CompareContent() {
         setLoading(false);
       });
   }, []);
-
-  useEffect(() => {
-    const ids = searchParams.get("ids");
-    if (ids) {
-      setSelectedIds(ids.split(",").map(Number).filter(Boolean));
-    }
-  }, [searchParams]);
 
   const selectedJobs = allJobs.filter((j) => selectedIds.includes(j.id));
 

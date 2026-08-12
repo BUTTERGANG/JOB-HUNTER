@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import Database from "better-sqlite3";
 import { SCHEMA_SQL } from "./ddl";
 
 let initialized = false;
@@ -16,7 +17,6 @@ export function ensureDb() {
 
   // Always run DDL — all statements use IF NOT EXISTS so this is safe on
   // existing DBs and picks up new tables added in future schema updates.
-  const Database = require("better-sqlite3");
   const sqlite = new Database(dbPath);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");

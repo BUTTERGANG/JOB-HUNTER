@@ -207,6 +207,9 @@ export default function AnalysisPage() {
     setLoading(false);
   }, [sourceFilter, minScoreFilter]);
 
+  // fetchData sets loading/error state before awaiting the fetch — standard
+  // fetch-on-mount-and-filter-change pattern, not an unintended cascade.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchData(); }, [fetchData]);
 
   if (loading) {

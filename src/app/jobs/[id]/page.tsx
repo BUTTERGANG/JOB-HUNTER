@@ -92,6 +92,19 @@ interface ResumeStructure {
 
 type TailoredResumeData = ResumeStructure | string;
 
+function ScorePill({ value }: { value: number }) {
+  const color = value >= 7
+    ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800"
+    : value >= 4
+    ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+    : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300 border-red-200 dark:border-red-800";
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-medium ${color}`}>
+      <span className="font-bold">{value}/10</span>
+    </span>
+  );
+}
+
 export default function JobDetailPage({
   params,
 }: {
@@ -390,20 +403,6 @@ export default function JobDetailPage({
   }
 
   const formatSalary = (n: number) => `$${n.toLocaleString()}`;
-
-  // Score pill helper for rank analysis display
-  const ScorePill = ({ value }: { value: number }) => {
-    const color = value >= 7
-      ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800"
-      : value >= 4
-      ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800"
-      : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300 border-red-200 dark:border-red-800";
-    return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-medium ${color}`}>
-        <span className="font-bold">{value}/10</span>
-      </span>
-    );
-  };
 
   return (
     <div>
