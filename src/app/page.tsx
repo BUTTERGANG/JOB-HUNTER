@@ -140,9 +140,9 @@ function ScoreDots({ label, value }: { label: string; value: number | null }) {
   return (
     <div className="flex items-center gap-1.5">
       <span className="text-xs text-muted-foreground w-12 shrink-0">{label}</span>
-      <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+      <div className="flex-1 bg-muted rounded-full h-1.5">
         <div
-          className={`h-1.5 rounded-full ${value >= 7 ? "bg-green-500" : value >= 4 ? "bg-blue-400" : "bg-gray-300"}`}
+          className={`h-1.5 rounded-full ${value >= 7 ? "bg-primary" : value >= 4 ? "bg-primary/50" : "bg-muted-foreground/30"}`}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -252,16 +252,15 @@ export default function DashboardPage() {
     <div className="space-y-7">
 
       {/* ── Header ── */}
-      <div className="relative overflow-hidden rounded-2xl border border-border bg-card px-5 py-6 sm:px-7 sm:py-7 shadow-sm">
-        <div className="absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_center,color-mix(in_oklch,var(--primary)_18%,transparent),transparent_68%)] opacity-80" />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+      <div className="rounded-2xl border border-border bg-card px-5 py-6 sm:px-7 sm:py-7">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="mb-2 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-primary">Your signal desk</p>
+            <p className="mb-2 text-[0.68rem] font-semibold uppercase tracking-[0.22em] text-primary">Overview</p>
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Dashboard</h1>
             <p className="mt-2 max-w-xl text-sm text-muted-foreground">See what is worth your attention, then make the next move.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/scrape"><Button size="lg" className="shadow-[0_8px_22px_color-mix(in_oklch,var(--primary)_22%,transparent)]">Scrape Jobs</Button></Link>
+            <Link href="/scrape"><Button size="lg">Scrape Jobs</Button></Link>
             <Link href="/analysis"><Button size="lg" variant="outline">Market Analysis</Button></Link>
           </div>
         </div>
@@ -271,19 +270,19 @@ export default function DashboardPage() {
       {hasScrapedData ? (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Card className="border-primary/25 bg-primary/[0.06] shadow-sm">
+            <Card>
               <CardContent className="pt-4">
                 <div className="text-3xl font-bold">{scrape.total.toLocaleString()}</div>
                 <div className="text-sm text-muted-foreground">Total Scraped</div>
               </CardContent>
             </Card>
-            <Card className="border-cyan-500/25 bg-cyan-500/[0.05] shadow-sm">
+            <Card>
               <CardContent className="pt-4">
                 <div className="text-3xl font-bold">{scrape.analyzed.toLocaleString()}</div>
                 <div className="text-sm text-muted-foreground">AI Analyzed</div>
               </CardContent>
             </Card>
-            <Card className="border-border bg-card shadow-sm">
+            <Card>
               <CardContent className="pt-4">
                 <div className={`text-3xl font-bold ${scrape.avgScore != null && scrape.avgScore >= 55 ? "text-primary" : ""}`}>
                   {scrape.avgScore ?? "—"}
@@ -291,7 +290,7 @@ export default function DashboardPage() {
                 <div className="text-sm text-muted-foreground">Avg Score / 100</div>
               </CardContent>
             </Card>
-            <Card className="border-primary/25 bg-primary/[0.06] shadow-sm">
+            <Card>
               <CardContent className="pt-4">
                 <div className="text-3xl font-bold text-primary">{scrape.highScoreCount}</div>
                 <div className="text-sm text-muted-foreground">High Score (≥70)</div>
@@ -327,14 +326,14 @@ export default function DashboardPage() {
 
       {/* ── Analysis backfill panel ── */}
       {backfill && backfill.unanalyzed > 0 && (
-        <Card className={backfill.activeRun ? "border-blue-200 bg-blue-50/40" : "border-amber-200 bg-amber-50/40"}>
+        <Card className={backfill.activeRun ? "border-primary/30 bg-accent/40" : "border-ring/40 bg-accent/20"}>
           <CardContent className="pt-4 pb-4">
             {backfill.activeRun ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Spinner className="h-4 w-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-800">Analyzing jobs…</span>
+                    <Spinner className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium text-foreground">Analyzing jobs…</span>
                   </div>
                   <button
                     onClick={cancelBackfill}
@@ -357,13 +356,13 @@ export default function DashboardPage() {
             ) : (
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-medium text-amber-800">
+                  <p className="text-sm font-medium text-foreground">
                     {backfill.unanalyzed.toLocaleString()} jobs need AI scoring
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {backfill.analyzed.toLocaleString()} of {backfill.total.toLocaleString()} analyzed · scores unlock ranking, filtering, and insights
                   </p>
-                  {backfillError && <p className="text-xs text-red-600 mt-1">{backfillError}</p>}
+                  {backfillError && <p className="text-xs text-destructive mt-1">{backfillError}</p>}
                 </div>
                 <Button
                   size="sm"
@@ -406,7 +405,7 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={job.id}
-                      className="group overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/45 hover:shadow-md"
+                      className="group overflow-hidden rounded-xl border border-border/80 bg-card transition-colors hover:border-primary/45"
                     >
                       {/* Row */}
                       <div
@@ -429,7 +428,7 @@ export default function DashboardPage() {
                         {/* Right side */}
                         <div className="flex items-center gap-2 shrink-0">
                           {deg && (
-                            <Badge variant="outline" className="text-xs px-1.5 py-0 text-orange-700 border-orange-300">
+                            <Badge variant="outline" className="text-xs px-1.5 py-0 text-accent-foreground border-border">
                               {deg} req
                             </Badge>
                           )}
@@ -506,7 +505,7 @@ export default function DashboardPage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">High score (≥70)</span>
-                  <span className="font-mono font-medium text-green-600">
+                  <span className="font-mono font-medium text-primary">
                     {scrape.highScoreCount} ({Math.round((scrape.highScoreCount / scrape.analyzed) * 100)}%)
                   </span>
                 </div>
@@ -568,13 +567,13 @@ export default function DashboardPage() {
                       <div className="text-xs text-muted-foreground">Applied</div>
                     </div>
                     <div className="text-center">
-                      <div className={`text-2xl font-bold ${pipeline.activeInterviews >= 3 ? "text-orange-600" : ""}`}>
+                      <div className={`text-2xl font-bold ${pipeline.activeInterviews >= 3 ? "text-primary" : ""}`}>
                         {pipeline.activeInterviews}
                       </div>
                       <div className="text-xs text-muted-foreground">Interviews</div>
                     </div>
                     <div className="text-center">
-                      <div className={`text-2xl font-bold ${pipeline.offers > 0 ? "text-green-600" : ""}`}>
+                      <div className={`text-2xl font-bold ${pipeline.offers > 0 ? "text-primary" : ""}`}>
                         {pipeline.offers}
                       </div>
                       <div className="text-xs text-muted-foreground">Offers</div>
@@ -604,7 +603,7 @@ export default function DashboardPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base">
                 {pipeline.needFollowUp.length > 0 ? (
-                  <span className="text-orange-700">Follow-Up Needed ({pipeline.needFollowUp.length})</span>
+                  <span className="text-primary">Follow-Up Needed ({pipeline.needFollowUp.length})</span>
                 ) : (
                   <span>Follow-Ups</span>
                 )}
@@ -620,7 +619,7 @@ export default function DashboardPage() {
                       <Link href={`/jobs/${job.id}`} className="hover:underline text-sm truncate max-w-[200px]">
                         {job.company} — {job.role}
                       </Link>
-                      <span className="text-xs text-orange-600 shrink-0">{job.daysSince}d ago</span>
+                      <span className="text-xs text-primary shrink-0">{job.daysSince}d ago</span>
                     </div>
                   ))}
                 </div>
