@@ -205,7 +205,7 @@ export default function JobsPage() {
       <header className="flex flex-col gap-5 border-b border-border/70 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-            Signal board
+            Pipeline
           </p>
           <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Jobs</h1>
           <p className="mt-2 max-w-xl text-sm text-muted-foreground">
@@ -244,7 +244,7 @@ export default function JobsPage() {
       <section className="rounded-xl border border-border/70 bg-card p-4 shadow-sm sm:p-5" aria-label="Filter jobs">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Find a signal</h2>
+            <h2 className="text-sm font-semibold text-foreground">Search & filter</h2>
             <p className="text-xs text-muted-foreground">Search and narrow your active pipeline.</p>
           </div>
           <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">

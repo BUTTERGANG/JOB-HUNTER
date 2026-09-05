@@ -100,13 +100,12 @@ export function Sidebar() {
       <div className="flex flex-col flex-1 min-h-0">
         <div className="flex items-center justify-between h-20 px-5 border-b border-sidebar-border">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="relative w-9 h-9 rounded-xl bg-sidebar-primary text-sidebar-primary-foreground flex items-center justify-center shadow-[0_0_24px_color-mix(in_oklch,var(--sidebar-primary)_35%,transparent)]">
+            <div className="w-9 h-9 rounded-xl bg-sidebar-primary text-sidebar-primary-foreground flex items-center justify-center">
               <span className="font-black text-xs tracking-tight">JH</span>
-              <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-sidebar-primary ring-2 ring-sidebar" />
             </div>
             <div>
               <span className="block font-semibold tracking-tight text-sidebar-foreground">JobHunt</span>
-              <span className="block text-[0.65rem] uppercase tracking-[0.18em] text-sidebar-foreground/55">Signal desk</span>
+              <span className="block text-[0.65rem] uppercase tracking-[0.18em] text-sidebar-foreground/55">Job tracker</span>
             </div>
           </Link>
         </div>
@@ -140,7 +139,7 @@ export function Sidebar() {
           ))}
         </nav>
         <div className="px-3 py-4 border-t border-sidebar-border">
-          <div className="px-3 pb-3 text-[0.7rem] text-sidebar-foreground/45">Stay close to the next right move.</div>
+          <div className="px-3 pb-3 text-[0.7rem] text-sidebar-foreground/45">One application closer.</div>
           <button
             onClick={toggle}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors w-full focus-visible:ring-sidebar-primary"

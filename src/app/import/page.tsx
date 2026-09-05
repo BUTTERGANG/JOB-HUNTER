@@ -151,7 +151,7 @@ export default function ImportPage() {
         </p>
         <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Import from CSV</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Bring an existing job list into your signal board, then review the mapping before it lands.
+          Bring an existing job list into your tracker, then review the mapping before it lands.
         </p>
       </header>
 
