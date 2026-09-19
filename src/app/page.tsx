@@ -411,6 +411,14 @@ export default function DashboardPage() {
                       <div
                         className="flex cursor-pointer items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/45"
                         onClick={() => setExpandedJob(isOpen ? null : job.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setExpandedJob(isOpen ? null : job.id);
+                          }
+                        }}
                       >
                         {/* Score badge */}
                         <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold font-mono ${scoreBg(job.rankScore)}`}>

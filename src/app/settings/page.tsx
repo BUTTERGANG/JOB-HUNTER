@@ -335,7 +335,7 @@ export default function SettingsPage() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-red-600">{error}</div>
+        <div className="text-destructive">{error}</div>
       </div>
     );
   }
@@ -486,7 +486,7 @@ export default function SettingsPage() {
                   : "Import BLS Data"}
               </Button>
               {blsResult && (
-                <span className={`text-sm ${blsResult.startsWith("Error") ? "text-red-600" : "text-green-600"}`}>
+                <span className={`text-sm ${blsResult.startsWith("Error") ? "text-destructive" : "text-green-600"}`}>
                   {blsResult}
                 </span>
               )}
@@ -609,7 +609,7 @@ export default function SettingsPage() {
                 {scheduleRunning ? "Running…" : "Run Now"}
               </Button>
               {scheduleRunResult && (
-                <span className={`text-sm ${scheduleRunResult.startsWith("Error") ? "text-red-600" : "text-green-600"}`}>
+                <span className={`text-sm ${scheduleRunResult.startsWith("Error") ? "text-destructive" : "text-green-600"}`}>
                   {scheduleRunResult}
                 </span>
               )}
@@ -755,7 +755,7 @@ export default function SettingsPage() {
                 {discordTesting ? "Sending…" : "Send Test"}
               </Button>
               {discordTestResult && (
-                <span className={`text-sm ${discordTestResult.startsWith("Error") ? "text-red-600" : "text-green-600"}`}>
+                <span className={`text-sm ${discordTestResult.startsWith("Error") ? "text-destructive" : "text-green-600"}`}>
                   {discordTestResult}
                 </span>
               )}

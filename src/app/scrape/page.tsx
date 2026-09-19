@@ -377,7 +377,7 @@ function ResultsTable({
   const allSelected = selectable && visibleKeys.length > 0 && visibleKeys.every((key) => selected!.has(key));
   const colCount = (selectable ? 1 : 0) + (showAnalysis ? 1 : 0) + 7 + 1;
 
-  function toggleExpand(key: string, e: React.MouseEvent) {
+  function toggleExpand(key: string, e: React.SyntheticEvent) {
     e.stopPropagation();
     setExpandedRow((prev) => (prev === key ? null : key));
   }
@@ -459,6 +459,25 @@ function ResultsTable({
               <TableRow
                 className={`${selectable && !selected!.has(key) ? "opacity-40" : ""} ${showAnalysis ? "cursor-pointer" : ""}`}
                 onClick={selectable ? () => onToggle!(key) : showAnalysis ? (e) => toggleExpand(key, e) : undefined}
+                role={selectable || showAnalysis ? "button" : undefined}
+                tabIndex={selectable || showAnalysis ? 0 : undefined}
+                onKeyDown={
+                  selectable
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onToggle!(key);
+                        }
+                      }
+                    : showAnalysis
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          toggleExpand(key, e);
+                        }
+                      }
+                    : undefined
+                }
               >
                 {selectable && (
                   <TableCell onClick={(e) => e.stopPropagation()}>
@@ -841,6 +860,14 @@ function PastScrapes() {
             <CardHeader
               className="cursor-pointer select-none py-4"
               onClick={() => loadDetail(run.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  loadDetail(run.id);
+                }
+              }}
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
