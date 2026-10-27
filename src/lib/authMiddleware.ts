@@ -36,10 +36,16 @@ export function validateRequest(request: NextRequest, requiredEndpoint?: string)
       return { valid: true };
     }
 
-    // Check for Authorization header
+    // Auth credentials. `Authorization: Bearer <token>` is accepted as an auth
+    // token equivalent — the header used to be read and then ignored, so Bearer
+    // clients were rejected despite the comment claiming it was checked.
     const authHeader = request.headers.get("authorization");
+    const bearerToken =
+      authHeader && authHeader.toLowerCase().startsWith("bearer ")
+        ? authHeader.slice(7).trim()
+        : null;
     const apiKeyHeader = request.headers.get("x-api-key");
-    const authTokenHeader = request.headers.get("x-auth-token");
+    const authTokenHeader = request.headers.get("x-auth-token") || bearerToken;
 
     // Try auth token first (higher precedence)
     if (authTokenHeader && authTokenHeader === STATIC_AUTH_TOKEN) {

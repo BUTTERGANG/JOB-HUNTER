@@ -9,7 +9,7 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 - **Residential proxy support** — Route scrapes through rotating proxies (e.g. DataImpulse) to avoid single-IP rate limiting; per-site status (`ok` / `blocked` / counts) surfaced in the UI
 - **AI ranking from your target profile** — Each job is scored by Anthropic Claude across pay, interest, responsibility, hours, flexibility, location, accessibility and engagement type. Every weight, interest and rule lives in an editable **Target Profile**, not in the prompt
 - **Unit-aware pay** — Hourly, daily, per-event and annual rates are kept distinct end to end; an hourly rate is never read as an annual salary
-- **Weekly-hours rule** — A week below your minimum (default 20h) is excused when the role is remote or self-scheduled, and penalised otherwise; either way the listing is ranked and shown
+- **Earnings-aware commitment rule** — A role clears the bar by meeting either your weekly-hours minimum (default 20h) or your weekly-earnings floor (default $600). A short week at a high rate is accepted, not fined; a genuine shortfall loses points graduated by how short it is. Always ranked and shown, never hidden
 - **BLS wage benchmarks** — National OEWS wage data (by SOC occupation code) from the Bureau of Labor Statistics for salary comparison
 - **Job tracking pipeline** — Import scraped jobs into a tracker with status, tier, notes, and resume tailoring
 - **Scheduled scraping** — Configure recurring scrapes that run automatically
@@ -84,8 +84,10 @@ The profile holds:
 
 - **Interests** — the relevance signal (matched against titles, companies and descriptions)
 - **Industries** — leave blank for "not picky"
-- **Weekly hours** — your minimum (default 20h). A shorter week is excused when the role is
-  remote or genuinely self-scheduled, and penalised otherwise
+- **Weekly hours and earnings** — your minimum hours (default 20h) and the weekly earnings
+  floor (default $600). A role clears the bar by meeting either, so 15h at $50/hr ($750/wk)
+  is accepted where 15h at $15/hr ($225/wk) is not. A week that misses both, with no remote
+  or scheduling flexibility, loses points graduated by how short it is
 - **Compensation** — optional hourly/annual floor, target and stretch. Left blank, rates are
   scored against what the work pays in the market instead of pass/fail
 - **Work you will take** — on-site, remote, hybrid, weekends, evenings, holidays, contract,

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
-import { JOB_STATUSES, TERMINAL_STATUSES } from "@/lib/constants";
+import { JOB_STATUSES } from "@/lib/constants";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
@@ -64,13 +64,6 @@ interface DashboardData {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function scoreColor(s: number) {
-  if (s >= 75) return "text-green-600";
-  if (s >= 55) return "text-blue-600";
-  if (s >= 35) return "text-yellow-600";
-  return "text-muted-foreground";
-}
 
 function scoreBg(s: number) {
   if (s >= 75) return "bg-green-100 text-green-800";

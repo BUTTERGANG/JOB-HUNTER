@@ -2,6 +2,41 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
+## 2026-10-27 — Earnings-aware weekly commitment rule, and a bug sweep
+
+**The hours rule now weighs pay, not just the hour count.** 15h at $50/hr ($750/wk) is a
+better deal than 20h at $15/hr ($300/wk), and the ranker previously could not express that:
+any week under 20h took a flat penalty regardless of rate.
+
+- `work.minWeeklyEarnings` (default $600/wk) joins `work.minWeeklyHours`. A role clears the
+  bar by meeting **either** — so a short, well-paid week is accepted rather than fined.
+- The penalty is now **graduated by how short the week actually is**: a near-miss costs a
+  point or two, a badly short week costs the configured maximum, and a week that clears a
+  floor or is justified costs nothing. Verified: 18h @ $28/hr (a $504/wk near-miss) costs 2
+  points where 8h with no stated rate costs 7.
+- A week that meets the hours minimum but pays poorly is **flagged, not fined**
+  (`Meets the hours minimum but pays only $300/wk`), so the trade-off stays visible without
+  silently overriding the stated hours rule.
+- The prompt now states the trade-off explicitly and instructs the model to score the hours
+  axis on hours *and* earnings — "a short week at a high rate belongs at 8-10, not at 5".
+- Live check: 15h @ $50/hr scores 84 (`basis: earnings`, no penalty) against 20h @ $15/hr at
+  63 (`basis: hours`, no penalty, flagged for low earnings).
+
+**Bugs fixed**
+
+- **`POST /api/scrape` ignored its own validation.** The result was assigned to
+  `validatedConfig` and never read, so `ok: false` was never checked and the scrape ran on the
+  raw request body instead of the sanitised values — `results: 99999` or an unknown site went
+  straight through to the scraper. Now returns 400 with the reason.
+- **`Authorization: Bearer <token>` was rejected.** `authMiddleware` read the header, never
+  used it, and only accepted `x-auth-token` / `x-api-key` despite the comment claiming
+  otherwise. Bearer is now accepted as an auth token.
+- **Dead code removed:** unused `dupCount` counter in the market-analysis aggregation (the
+  response already reports `duplicatesRemoved`), unused `total` parameter on `runAnalysis`,
+  a stale local `scoreColor` helper and unused imports across `dashboard`, `page`, `auth`,
+  `rateLimit`, `layout`. ESLint is now clean (was 15 warnings, 0 errors) and the production
+  build passes.
+
 ## 2026-10-27 — OpenRouter support (no Anthropic key required)
 
 Every AI feature now goes through one provider-agnostic layer instead of the Anthropic

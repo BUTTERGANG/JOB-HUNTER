@@ -51,8 +51,18 @@ export interface ProfileWork {
   /** The weekly-hours floor: 20 by default. */
   minWeeklyHours: number;
   /**
-   * When true, a week below `minWeeklyHours` must be justified by remote work or
-   * scheduling flexibility to avoid a penalty — it is still ranked and shown.
+   * What a week must be worth, in dollars, for a short week to be acceptable.
+   *
+   * This is what makes the rule earnings-aware rather than hours-counting:
+   * 15h at $50/hr ($750/wk) clears it, 15h at $15/hr ($225/wk) does not. A role
+   * is acceptable when it clears EITHER this floor or `minWeeklyHours`.
+   * Null disables the earnings test and leaves a pure hours rule.
+   */
+  minWeeklyEarnings: number | null;
+  /**
+   * When true, a week below `minWeeklyHours` must be justified by remote work,
+   * scheduling flexibility, or the earnings floor to avoid a penalty — it is
+   * still ranked and shown.
    */
   requireJustificationBelowMinHours: boolean;
 }
@@ -157,6 +167,9 @@ export const DEFAULT_PROFILE: TargetProfile = {
     acceptTemporary: true,
     acceptPartTime: true,
     minWeeklyHours: 20,
+    // $600/wk ≈ $31k/yr. Deliberately below 20h × the default pay expectations
+    // so it excuses a genuinely well-paid short week without excusing a thin one.
+    minWeeklyEarnings: 600,
     requireJustificationBelowMinHours: true,
   },
   compensation: {
@@ -276,6 +289,10 @@ export function sanitizeProfile(p: TargetProfile): TargetProfile {
       Number.isFinite(out.work?.minWeeklyHours) && out.work.minWeeklyHours >= 0
         ? clamp(out.work.minWeeklyHours, 0, 80)
         : DEFAULT_PROFILE.work.minWeeklyHours,
+    minWeeklyEarnings:
+      out.work?.minWeeklyEarnings == null || !Number.isFinite(Number(out.work.minWeeklyEarnings))
+        ? null
+        : clamp(Number(out.work.minWeeklyEarnings), 0, 100_000),
   };
   out.location = {
     ...out.location,
@@ -387,7 +404,14 @@ stated here, and do not apply a persona of your own.
 ## SEEKER PROFILE
 Market: ${profile.location.city}, ${profile.location.state} (cost-of-living index ${profile.location.colIndex}, national average 100)
 Commute tolerance: ~${profile.location.maxCommuteMinutes} minutes; out-of-state roles are ${yesNo(profile.location.acceptOutOfState) ? "in scope on merit" : "out of scope"}
-Weekly-hours requirement: at least ${profile.work.minWeeklyHours}h/week. A shorter week is acceptable ONLY when the role is remote or genuinely flexible${profile.work.requireJustificationBelowMinHours ? " — say so explicitly when that excuses it" : ""}. Never treat a short week as automatically disqualifying.
+Weekly commitment: at least ${profile.work.minWeeklyHours}h/week${profile.work.minWeeklyEarnings != null ? `, OR at least $${profile.work.minWeeklyEarnings}/week in earnings — whichever the role satisfies` : ""}.
+A role clears the bar when it meets EITHER test. Hours and pay trade off directly: a
+15h/week role at $50/hr ($750/wk) is BETTER than a 20h/week role at $15/hr ($300/wk), and must
+not be marked down for having fewer hours. Judge a short week on what it actually pays — a
+high rate justifying fewer hours is a good outcome, not a deficiency.
+Only a week that misses BOTH the hours floor and the earnings floor, with no remote or
+scheduling-flexibility justification, is a genuine shortfall — and even then it stays in the
+list, flagged.
 Education: ${edu}
 Own gear: ${gear}
 Portfolio/reel: ${yesNo(req.hasPortfolio)}${req.yearsExperience != null ? `\nYears of experience: ${req.yearsExperience}` : ""}${req.certifications.length ? `\nCertifications: ${req.certifications.join(", ")}` : ""}
@@ -448,10 +472,13 @@ interest       How well the work itself matches the stated interests and the kin
 responsibility How attractive the duties are: 10 = work the seeker is capable of and
                would be good at, with room to own something; 0 = duties that are
                unsuitable, or so senior/multi-discipline they are unrealistic.
-hours          Fit of the weekly volume: 10 = comfortably at or above the weekly
-               minimum with a sane pattern; 5 = borderline or unclear; 0 = a token
-               number of hours with no flexibility. Weekend and evening work is
-               NOT a deduction here — the seeker works live events.
+hours          Fit of the weekly commitment, weighing hours AND what the week pays:
+               10 = clears the hours minimum, or pays well above the weekly earnings
+               floor on fewer hours; 5 = borderline on both counts, or unclear;
+               0 = few hours AND low earnings with no flexibility. A short week at a
+               high rate belongs at 8-10, not at 5 — do not score hours on the hour
+               count alone. Weekend and evening work is NOT a deduction here: the
+               seeker works live events.
 flexibility    Scheduling freedom: 10 = fully remote or largely self-scheduled;
                5 = predictable set schedule; 0 = rigidly fixed hours with no
                give. On-site shoot work should sit around 4–6, not 0.

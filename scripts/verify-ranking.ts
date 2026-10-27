@@ -77,6 +77,50 @@ const shortRigid = evaluateHoursRule({ hoursPerWeek: 8, jobType: "parttime", isR
 check("8h/wk rigid on-site → NOT justified", [shortRigid.meetsMin, shortRigid.justified], [false, false]);
 check("8h/wk rigid → penalised flag", shortRigid.flag, "hours:under-min");
 
+// The rule is earnings-aware: a short week is judged on what it pays.
+const shortWellPaid = evaluateHoursRule({
+  hoursPerWeek: 15, jobType: "parttime", isRemote: false, flexible: false, hourlyRate: 50,
+});
+check("15h @ $50/hr clears the earnings floor", shortWellPaid.meetsMin, true);
+check("15h @ $50/hr is carried by earnings, not hours", shortWellPaid.basis, "earnings");
+check("15h @ $50/hr costs nothing", shortWellPaid.penaltyPoints, 0);
+check("15h @ $50/hr computes weekly earnings", shortWellPaid.weeklyEarnings, 750);
+
+const shortPoorlyPaid = evaluateHoursRule({
+  hoursPerWeek: 15, jobType: "parttime", isRemote: false, flexible: false, hourlyRate: 15,
+});
+check("15h @ $15/hr does NOT clear the floor", shortPoorlyPaid.meetsMin, false);
+check("15h @ $15/hr is penalised", shortPoorlyPaid.penaltyPoints > 0, true);
+
+const fullPoorlyPaid = evaluateHoursRule({
+  hoursPerWeek: 20, jobType: "fulltime", isRemote: false, hourlyRate: 15,
+});
+check("20h @ $15/hr still meets the hours minimum", fullPoorlyPaid.meetsMin, true);
+check("20h @ $15/hr costs nothing but is flagged", [fullPoorlyPaid.penaltyPoints, fullPoorlyPaid.flag], [0, "hours:low-earnings"]);
+
+// The user's actual example: 15h @ $50 must outrank 20h @ $15.
+const wellPaidShort = computeRankScore(
+  { pay: 9, interest: 10, responsibility: 8, hours: 9, flexibility: 5, location: 10, requirements: 8, engagement: 10 },
+  DEFAULT_PROFILE,
+  { hours: shortWellPaid }
+);
+const poorlyPaidFull = computeRankScore(
+  { pay: 4, interest: 10, responsibility: 8, hours: 10, flexibility: 5, location: 10, requirements: 8, engagement: 10 },
+  DEFAULT_PROFILE,
+  { hours: fullPoorlyPaid }
+);
+assert(
+  `15h @ $50/hr outranks 20h @ $15/hr (${wellPaidShort.rankScore} vs ${poorlyPaidFull.rankScore})`,
+  wellPaidShort.rankScore > poorlyPaidFull.rankScore
+);
+
+// Penalties graduate: a near-miss costs less than a badly short week.
+const nearMiss = evaluateHoursRule({ hoursPerWeek: 18, jobType: "parttime", isRemote: false, hourlyRate: 28 });
+assert(
+  `a near-miss (18h @ $28 = $504/wk) costs less than a badly short week (8h, no rate): ${nearMiss.penaltyPoints} < ${shortRigid.penaltyPoints}`,
+  nearMiss.penaltyPoints < shortRigid.penaltyPoints
+);
+
 console.log("\n=== 3. Aggregation: weights normalise, penalties are explicit ===");
 const weights = rankWeights(DEFAULT_PROFILE);
 const wsum = Object.values(weights).reduce((s, n) => s + n, 0);
@@ -93,10 +137,11 @@ check("perfect axes → 100", computeRankScore(perfect, DEFAULT_PROFILE).rankSco
 
 const penalised = computeRankScore(perfect, DEFAULT_PROFILE, { hours: shortRigid });
 check(
-  "perfect axes with an unjustified short week lose the configured penalty",
+  "perfect axes with an unjustified short week lose the graduated penalty",
   penalised.rankScore,
-  100 - (DEFAULT_PROFILE.penalties.underMinHours ?? 0)
+  100 - shortRigid.penaltyPoints
 );
+check("the graduated penalty is less than the configured maximum", shortRigid.penaltyPoints < (DEFAULT_PROFILE.penalties.underMinHours ?? 0), true);
 check("penalty is reported, not hidden", penalised.penalties.length, 1);
 
 const excused = computeRankScore(perfect, DEFAULT_PROFILE, { hours: shortRemote });

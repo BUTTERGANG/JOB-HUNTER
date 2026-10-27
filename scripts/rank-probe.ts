@@ -13,7 +13,6 @@
  */
 
 import fs from "fs";
-import path from "path";
 import { analyzeJobsBatch, type JobInput } from "@/lib/ai/analyzeJobs";
 import { getLlmConfig } from "@/lib/ai/llm";
 import { getTargetProfile } from "@/lib/db/queries";

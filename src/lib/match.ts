@@ -41,13 +41,28 @@ export interface HoursRuleInput {
   flexible?: boolean;
   /** Title + description text to scan for scheduling/remote hints. */
   text?: string;
+  /**
+   * The hourly rate, when known. This is what makes the rule earnings-aware:
+   * a short week is judged on what it pays, not only on how many hours it is.
+   */
+  hourlyRate?: number | null;
 }
 
 export interface HoursVerdict {
+  /** True when the role clears the hours floor OR the weekly earnings floor. */
   meetsMin: boolean;
-  /** True when the shortfall is excused by remote work or genuine flexibility. */
+  /** True when a shortfall is excused (remote, flexibility, or a high enough rate). */
   justified: boolean;
   effectiveHours: number | null;
+  /** hours x rate, when both are known — the figure the rule actually judges. */
+  weeklyEarnings: number | null;
+  /** Which test carried the verdict. */
+  basis: "hours" | "earnings" | null;
+  /**
+   * Graduated deduction: a near-miss costs a little, a badly short week costs the
+   * configured maximum. Zero for anything that clears a floor or is justified.
+   */
+  penaltyPoints: number;
   /** Human-readable reason, shown in the UI and fed back to the model as context. */
   reason: string;
   /** Short machine flag, e.g. "hours:under-min". */
@@ -66,55 +81,99 @@ export function evaluateHoursRule(
   input: HoursRuleInput,
   profile: TargetProfile = DEFAULT_PROFILE
 ): HoursVerdict {
-  // The floor lives under `work` — reading it off the top level silently made
+  // The floors live under `work` — reading them off the top level silently made
   // every comparison `>= undefined` and flagged every listing as under-minimum.
-  const min = profile.work.minWeeklyHours;
-  const effective = input.hoursPerWeek;
+  const minHours = profile.work.minWeeklyHours;
+  const minEarnings = profile.work.minWeeklyEarnings;
+  const maxPenalty = profile.penalties?.underMinHours ?? DEFAULT_PROFILE.penalties!.underMinHours!;
 
-  if (effective != null && effective >= min) {
-    return {
-      meetsMin: true,
-      justified: false,
-      effectiveHours: effective,
-      reason: `${effective}h/wk meets the ${min}h/wk minimum.`,
-      flag: null,
-    };
-  }
+  const hours = input.hoursPerWeek;
+  const rate = input.hourlyRate ?? null;
+  const weeklyEarnings =
+    hours != null && rate != null && rate > 0 ? Math.round(hours * rate) : null;
 
   const jobTypeText = [input.jobType ?? "", input.text ?? ""].join(" ");
   const flexible = input.flexible === true || FLEX_HINTS.test(jobTypeText);
   const remote = input.isRemote || /remote|work from home|wfh/i.test(jobTypeText);
   const partTimeShaped = PART_TIME_HINTS.test(jobTypeText);
 
-  if (effective == null) {
+  const hoursOK = hours != null && hours >= minHours;
+  const earningsOK = minEarnings != null && weeklyEarnings != null && weeklyEarnings >= minEarnings;
+
+  // ── Clears a floor: no penalty either way ──────────────────────────────────
+  if (hoursOK || earningsOK) {
+    const lowEarnings = hoursOK && minEarnings != null && weeklyEarnings != null && !earningsOK;
+    return {
+      meetsMin: true,
+      justified: false,
+      effectiveHours: hours,
+      weeklyEarnings,
+      basis: earningsOK ? "earnings" : "hours",
+      penaltyPoints: 0,
+      reason: earningsOK
+        ? `${hours ?? "?"}h at ${rate != null ? `$${rate}/hr` : "the quoted rate"} = $${weeklyEarnings}/wk, which clears the $${minEarnings}/wk floor.`
+        : `${hours}h/wk meets the ${minHours}h/wk minimum.`,
+      flag: lowEarnings ? "hours:low-earnings" : null,
+    };
+  }
+
+  // ── Hours unknown: flag, never fine ────────────────────────────────────────
+  // Absence of information in a posting is not evidence of a bad role.
+  if (hours == null) {
     return {
       meetsMin: false,
       justified: remote || flexible,
       effectiveHours: null,
+      weeklyEarnings,
+      basis: null,
+      penaltyPoints: 0,
       reason: remote
         ? "Hours not stated and the role is remote — treated as acceptable until confirmed."
         : partTimeShaped
           ? "Hours not stated but the engagement type is part-time/per-event — confirm the weekly volume."
-          : "Hours not stated — cannot confirm the weekly minimum from the posting alone.",
+          : "Hours not stated — cannot confirm the weekly commitment from the posting alone.",
       flag: "hours:unknown",
     };
   }
 
+  // ── Below the hours floor. Justified by flexibility or remote? ─────────────
   if (remote || flexible) {
     return {
       meetsMin: false,
       justified: true,
-      effectiveHours: effective,
-      reason: `${effective}h/wk is below the ${min}h/wk minimum, but justified by ${remote ? "remote work" : "scheduling flexibility"}.`,
+      effectiveHours: hours,
+      weeklyEarnings,
+      basis: null,
+      penaltyPoints: 0,
+      reason: `${hours}h/wk is below the ${minHours}h/wk minimum, but justified by ${remote ? "remote work" : "scheduling flexibility"}.`,
       flag: "hours:under-min-justified",
     };
   }
 
+  // ── Genuine shortfall: graduated, and visible ──────────────────────────────
+  // Judge on earnings when we can, hours otherwise; a near-miss costs little and
+  // a badly short week costs the configured maximum.
+  const ratio =
+    weeklyEarnings != null && minEarnings != null && minEarnings > 0
+      ? Math.min(weeklyEarnings / minEarnings, 1)
+      : minHours > 0
+        ? Math.min(hours / minHours, 1)
+        : 1;
+  const penaltyPoints = Math.max(0, Math.round(maxPenalty * (1 - ratio)));
+
+  const shortfall =
+    weeklyEarnings != null && minEarnings != null
+      ? `$${weeklyEarnings}/wk against a $${minEarnings}/wk floor`
+      : `${hours}h/wk against a ${minHours}h/wk minimum`;
+
   return {
     meetsMin: false,
     justified: false,
-    effectiveHours: effective,
-    reason: `${effective}h/wk is below the ${min}h/wk minimum with no remote or flexibility justification.`,
+    effectiveHours: hours,
+    weeklyEarnings,
+    basis: null,
+    penaltyPoints,
+    reason: `${shortfall} with no remote, flexibility or rate justification — ${penaltyPoints} of ${maxPenalty} penalty points.`,
     flag: "hours:under-min",
   };
 }
@@ -156,13 +215,18 @@ export function computeRankScore(
 
   const penalties: { label: string; points: number }[] = [];
 
-  // Penalise ONLY a confirmed short week with no justification. Unknown hours are
-  // flagged, never fined: absence of information in a posting is not evidence of
-  // a bad role, and a 12-point hit for "not stated" quietly buried every listing
-  // that omitted its schedule.
-  if (opts.hours && opts.hours.flag === "hours:under-min") {
-    const pts = profile.penalties?.underMinHours ?? DEFAULT_PROFILE.penalties!.underMinHours!;
-    if (pts > 0) penalties.push({ label: "under minimum weekly hours", points: pts });
+  // Penalise ONLY a confirmed shortfall with no justification, and only by the
+  // graduated amount the rule computed. Unknown hours are flagged, never fined:
+  // absence of information in a posting is not evidence of a bad role, and a flat
+  // 12-point hit for "schedule not stated" quietly buried most of the market.
+  if (opts.hours && opts.hours.penaltyPoints > 0) {
+    penalties.push({
+      label:
+        opts.hours.weeklyEarnings != null
+          ? "under the weekly earnings floor"
+          : "under the minimum weekly hours",
+      points: opts.hours.penaltyPoints,
+    });
   }
 
   const penaltyTotal = penalties.reduce((sum, p) => sum + p.points, 0);
@@ -202,11 +266,29 @@ export function buildSoftFlags(input: {
   const flags: SoftFlag[] = [];
 
   if (input.hours?.flag === "hours:under-min") {
-    flags.push({ code: "hours:under-min", label: "Under minimum weekly hours", weight: "warn" });
+    flags.push({
+      code: "hours:under-min",
+      label: input.hours.weeklyEarnings != null
+        ? `Short week and low earnings ($${input.hours.weeklyEarnings}/wk)`
+        : "Under minimum weekly hours",
+      weight: "warn",
+    });
   } else if (input.hours?.flag === "hours:under-min-justified") {
-    flags.push({ code: "hours:under-min-justified", label: "Short week, justified by flexibility/remote", weight: "info" });
+    flags.push({
+      code: "hours:under-min-justified",
+      label: "Short week, justified by flexibility/remote",
+      weight: "info",
+    });
   } else if (input.hours?.flag === "hours:unknown") {
     flags.push({ code: "hours:unknown", label: "Weekly hours not stated", weight: "info" });
+  } else if (input.hours?.flag === "hours:low-earnings") {
+    flags.push({
+      code: "hours:low-earnings",
+      label: input.hours.weeklyEarnings != null
+        ? `Meets the hours minimum but pays only $${input.hours.weeklyEarnings}/wk`
+        : "Meets the hours minimum but the rate is low",
+      weight: "info",
+    });
   }
 
   if (input.interests.length === 0) {

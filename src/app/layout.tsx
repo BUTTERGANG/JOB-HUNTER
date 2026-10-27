@@ -30,7 +30,8 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        {/* Applies the stored theme before first paint to avoid a flash of the
+            wrong theme. Inline and synchronous by design. */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}})()` }} />
       </head>
       <body className="min-h-full bg-background text-foreground">

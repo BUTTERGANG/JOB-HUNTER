@@ -1,8 +1,8 @@
 import { db } from "@/lib/db/index";
 import { scrapeResults, jobAnalysis, scrapeRuns, jobs } from "@/lib/db/schema";
-import { sql, desc, eq } from "drizzle-orm";
+import { sql, desc } from "drizzle-orm";
 import { normalizeJobUrl } from "@/lib/jobIdentity";
-import { FOLLOW_UP_DAYS, TERMINAL_STATUSES } from "@/lib/constants";
+import { FOLLOW_UP_DAYS } from "@/lib/constants";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 import { NextRequest, NextResponse } from "next/server";
 

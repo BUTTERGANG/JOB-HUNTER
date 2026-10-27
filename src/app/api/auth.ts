@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getClientIdentifier } from "@/lib/authMiddleware";
 
 export async function GET(request: NextRequest) {
-  // Minimal auth for health check - no sensitive data returned
-  const clientId = getClientIdentifier(request);
-  return Response.json({ status: "ok", timestamp: Date.now() }, { status: 200 });
+  // Minimal health check — no sensitive data returned. The client identifier is
+  // the same value rate limiting uses, which makes a stuck limiter debuggable.
+  return Response.json(
+    { status: "ok", timestamp: Date.now(), client: getClientIdentifier(request) },
+    { status: 200 }
+  );
 }

@@ -14,7 +14,13 @@ import {
   type HoursVerdict,
   type SoftFlag,
 } from "@/lib/match";
-import { describePayForPrompt, normalizePay, parseInterval, type PayRange } from "@/lib/pay";
+import {
+  describePayForPrompt,
+  normalizePay,
+  parseInterval,
+  HOURS_PER_YEAR,
+  type PayRange,
+} from "@/lib/pay";
 
 export interface JobSchedule {
   days: string[];
@@ -243,6 +249,12 @@ export function normalizeResult(
     hoursPerWeek: toNumberOrNull(raw.hoursPerWeek),
   });
 
+  // The rate is what makes the hours rule earnings-aware: 15h at $50/hr is judged
+  // on the $750/wk it pays, not on the hour count alone.
+  const hourlyRate =
+    pay.hourlyMin ??
+    (pay.annualMin != null && pay.annualMin > 0 ? pay.annualMin / HOURS_PER_YEAR : null);
+
   const hoursVerdict = evaluateHoursRule(
     {
       hoursPerWeek: toNumberOrNull(raw.hoursPerWeek),
@@ -251,6 +263,7 @@ export function normalizeResult(
         raw.isRemote === true || raw.schedule?.isRemote === true || job.isRemote === true,
       flexible: raw.scheduleFlexible === true,
       text: [job.role, job.jobType ?? "", job.description ?? ""].join(" "),
+      hourlyRate,
     },
     profile
   );

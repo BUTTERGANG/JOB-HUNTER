@@ -36,7 +36,7 @@ export function startAnalysisRun(): { runId: string; total: number } | { error: 
   createAnalysisRun(runId, total);
   registry.set(runId, { cancelled: false });
 
-  void runAnalysis(runId, total).catch((e) => {
+  void runAnalysis(runId).catch((e) => {
     updateAnalysisRun(runId, { status: "error" });
     registry.delete(runId);
     console.error("analysisRunner error:", e);
@@ -57,7 +57,7 @@ export function getActiveAnalysisRunId(): string | null {
   return ids.length > 0 ? ids[0] : null;
 }
 
-async function runAnalysis(runId: string, total: number): Promise<void> {
+async function runAnalysis(runId: string): Promise<void> {
   const reg = registry.get(runId)!;
   const d = db();
   // The profile is read once per run: it carries the weights, the weekly-hours

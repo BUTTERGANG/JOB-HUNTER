@@ -181,18 +181,38 @@ export function TargetProfileEditor({ value, onChange }: Props) {
                     onChange={(e) => setWork({ minWeeklyHours: Number(e.target.value) })}
                   />
                 </div>
+                <div className="space-y-1">
+                  <Label htmlFor="pMinEarnings">Minimum weekly earnings ($)</Label>
+                  <Input
+                    id="pMinEarnings"
+                    type="number"
+                    min={0}
+                    placeholder="unset — hours only"
+                    className="w-40"
+                    value={p.work.minWeeklyEarnings ?? ""}
+                    onChange={(e) =>
+                      setWork({
+                        minWeeklyEarnings:
+                          e.target.value.trim() === "" ? null : Number(e.target.value),
+                      })
+                    }
+                  />
+                </div>
                 <label className="flex items-center gap-2 pb-2 text-sm">
                   <input
                     type="checkbox"
                     checked={p.work.requireJustificationBelowMinHours}
                     onChange={(e) => setWork({ requireJustificationBelowMinHours: e.target.checked })}
                   />
-                  Below the minimum is acceptable when remote or flexible
+                  A short week must be justified (by rate, remote, or flexibility)
                 </label>
               </div>
               <p className="text-xs text-muted-foreground">
-                A short week without remote work or scheduling flexibility loses points — it is
-                still ranked and shown, never removed.
+                A role clears the bar by meeting <em>either</em> the hours minimum or the weekly
+                earnings floor — so 15h at $50/hr ($750/wk) beats 20h at $15/hr ($300/wk) and is
+                not marked down for having fewer hours. A week that misses both, with no
+                justification, loses points graduated by how short it is. It is still ranked and
+                shown, never removed. Leave the earnings floor blank for a pure hours rule.
               </p>
             </div>
 

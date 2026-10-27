@@ -101,7 +101,6 @@ export function LlmConfigCard({
   const [result, setResult] = useState<TestResult | null>(null);
 
   const provider = value.llm_provider || status?.provider || "openrouter";
-  const keySaved = provider === "openrouter" ? hasOpenRouterKey : hasAnthropicKey;
 
   async function runTest() {
     setTesting(true);
@@ -227,6 +226,11 @@ export function LlmConfigCard({
             <p className="text-xs text-muted-foreground">
               Only needed if you want to call Anthropic directly instead of through OpenRouter.
             </p>
+            {anTouched && !value.anthropic_api_key && (
+              <p className="text-xs text-muted-foreground">
+                Clearing this field and saving removes the stored key.
+              </p>
+            )}
           </div>
         </details>
 

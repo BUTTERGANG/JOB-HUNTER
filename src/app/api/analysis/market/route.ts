@@ -97,13 +97,11 @@ function aggregate(raw: ScrapedRow[], sourceFilter: string | null) {
 
   // Deduplicate by normalized URL — keep most recent
   const deduped = new Map<string, ScrapedRow>();
-  let dupCount = 0;
   for (const row of rows) {
     const url = normalizeJobUrl(row.url);
     const key = url ?? `text:${row.company}|${row.role}|${row.location ?? ""}`;
     const existing = deduped.get(key);
     if (!existing || row.createdAt > existing.createdAt) {
-      if (existing) dupCount++;
       deduped.set(key, row);
     }
   }
