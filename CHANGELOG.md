@@ -2,6 +2,43 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
+## 2026-10-27 — Pipeline verification pass: three real bugs, docs brought current
+
+Added `scripts/verify-pipeline.ts` — 22 stages against a running server, asserting on real
+responses and real database rows: LLM reachable → scrape (Python) → rank → persist → run
+detail → market analysis → import to tracker → tracked detail → listing recheck → rate-limit
+isolation → resume JSON → resume persistence → DOCX export → dashboard → paste-a-posting.
+It writes a placeholder master resume for the resume stages and removes it afterwards.
+**22/22 pass.**
+
+Three bugs it found and this commit fixes:
+
+- **The scraper was annualising pay and destroying the unit.** `scripts/scrape_jobs.py` passed
+  `enforce_annual_salary=True`, so jobspy multiplied hourly rates by 2080 and relabelled the
+  interval "yearly": a $60/hr per-event wedding videographer was stored as **$124,800/yr**
+  (implying a year of full-time work) and a seasonal $14/hr gig as $29,120/yr. Now `False`,
+  so the quoted rate and its unit survive (`$20–$30/hr` stays `$20–$30/hr`), and
+  `src/lib/pay.ts` annualises using the posting's own stated hours when that is needed.
+  The pay *source* is also carried into the prompt, so a figure the job board estimated is
+  never read as a stated rate (and can never score `salaryConfidence: "high"`).
+- **Every rate limiter shared one counter.** `rateLimitStore` was a single module-level Map
+  keyed only by client id, so a request to any rate-limited route incremented the counter the
+  AI limiter read: ~10 requests anywhere started returning 429 on AI routes, and one bulk-scan
+  call (2 per 5 minutes) could lock out the entire API for five minutes. Each limiter now owns
+  its store, entries are swept when they expire (the old map never pruned), and responses
+  carry `X-RateLimit-Policy` naming the budget that was hit.
+- **The scrape interpreter was hardcoded to `python3`** — the macOS system 3.9, which has no
+  `jobspy`. The failure looked like "0 results" (i.e. a blocked board), not a missing module.
+  New `src/lib/pythonBin.ts` resolves `SCRAPE_PYTHON_BIN` → the `python_bin` setting →
+  `.venv/bin/python3` → `venv/bin/python3` → PATH, and when the interpreter can't import its
+  dependencies the API says so with the exact fix instead of reporting an empty scrape.
+
+Docs: README (Python setup incl. the `--copies` requirement, project structure, complete route
+table, new DB columns, a "Verifying the pipeline" section, settings reference), and
+`docs/scraper-improvements.md` (pay-unit traps, interpreter resolution, refreshed remaining
+work). Two SCRUM backlog cards were re-scoped to reality — the "add Indeed/LinkedIn/Glassdoor"
+card described scrapers that already ship, and its real gap is creative/event sourcing.
+
 ## 2026-10-27 — Earnings-aware weekly commitment rule, and a bug sweep
 
 **The hours rule now weighs pay, not just the hour count.** 15h at $50/hr ($750/wk) is a

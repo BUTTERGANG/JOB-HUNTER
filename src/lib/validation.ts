@@ -183,6 +183,9 @@ export function validateSettingsUpdate(input: unknown): ValidationResult<Record<
     // while resume tailoring uses a strong one.
     "anthropic_api_key", "openrouter_api_key", "llm_provider",
     "llm_model_ranker", "llm_model_tailor", "llm_model_extract", "llm_model_ats",
+    // Optional override for the scraper's Python interpreter; empty = auto-detect
+    // (.venv, then venv, then PATH).
+    "python_bin",
     // The editable target profile (JSON). Drives ranking weights, interests and
     // the weekly-hours rule — it replaced the hardcoded persona in the prompt.
     "target_profile"

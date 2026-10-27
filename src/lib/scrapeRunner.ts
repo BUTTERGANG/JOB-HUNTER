@@ -9,6 +9,7 @@ import type { BLSWageData } from "@/lib/db/queries";
 import { analyzeJobsBatch } from "@/lib/ai/analyzeJobs";
 import type { JobAnalysisResult } from "@/lib/ai/analyzeJobs";
 import { hasLlmKey } from "@/lib/ai/llm";
+import { resolvePythonBin, checkPythonDependencies } from "@/lib/pythonBin";
 import { getJobIdentityKey } from "@/lib/jobIdentity";
 
 const exec = promisify(execFile);
@@ -220,7 +221,11 @@ export async function runScrapeAndAnalyze(
 
   let stderr = "";
   try {
-    const r = await exec("python3", [scriptPath, "--config", configPath, "--out", outPath], {
+    // Never hardcode `python3`: on macOS that is the system 3.9 interpreter, which
+    // has no python-jobspy, and the failure surfaced as "0 results" rather than a
+    // missing module.
+    const python = resolvePythonBin();
+    const r = await exec(python.bin, [scriptPath, "--config", configPath, "--out", outPath], {
       timeout: timeoutMs,
       // JobSpy with verbose logging can emit a lot of stderr; the default 1MB
       // buffer would otherwise overflow and surface as a (false) scrape failure.
@@ -241,13 +246,27 @@ export async function runScrapeAndAnalyze(
     const e = err as { stderr?: string; message?: string };
     stderr = e.stderr ?? "";
     const msg = err instanceof Error ? err.message : String(err);
+
+    // Distinguish "the interpreter is missing the scraper's dependencies" from
+    // "the scrape genuinely failed". Without this the user sees a generic
+    // failure and reasonably assumes the job board blocked them.
+    const depProblem = await checkPythonDependencies(
+      async (cmd, args) => {
+        const r = await exec(cmd, args, { timeout: 20_000 });
+        return { stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+      },
+      ["jobspy"]
+    ).catch(() => null);
+
     return {
       jobs: [],
       count: 0,
       siteStatus: parseSiteStatus(stderr),
-      error: msg.includes("python-jobspy not installed")
-        ? "python-jobspy is not installed. Run: pip install -U python-jobspy"
-        : `Scrape failed: ${msg}`,
+      error: depProblem
+        ? depProblem
+        : msg.includes("python-jobspy not installed")
+          ? "python-jobspy is not installed. Run: pip install -U python-jobspy"
+          : `Scrape failed: ${msg}`,
     };
   }
 

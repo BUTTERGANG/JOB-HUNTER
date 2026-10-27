@@ -80,6 +80,8 @@ export interface JobInput {
   salaryMax: number | null;
   /** Pay unit as scraped ("hourly", "yearly", "per_event"...). */
   salaryInterval?: string | null;
+  /** Where the pay figure came from: "direct_data" (stated) or "estimated". */
+  salarySource?: string | null;
   jobType: string | null;
   description: string | null;
   isRemote?: boolean | null;
@@ -149,6 +151,9 @@ function buildPrompt(jobs: JobInput[], profile: TargetProfile): string {
       const extras = [
         j.jobType ? `Job Type: ${j.jobType}` : null,
         j.isRemote != null ? `Remote (as tagged by the source): ${j.isRemote ? "yes" : "no"}` : null,
+        j.salarySource
+          ? `Pay source: ${/estimat/i.test(j.salarySource) ? "ESTIMATED by the job board, not stated in the posting" : "stated in the posting"}`
+          : null,
         j.jobLevel ? `Level: ${j.jobLevel}` : null,
         j.listingType ? `Listing Type: ${j.listingType}` : null,
         j.companyIndustry ? `Company Industry: ${j.companyIndustry}` : null,
@@ -215,7 +220,9 @@ Field notes:
 - "estimatedSalaryMin/Max": annualised USD for this market. When the listing quotes an hourly,
   daily or per-event rate, annualise it using the weekly hours you recorded (40h/wk if the
   posting is full-time and unstated) so the numbers stay comparable across listings.
-- "salaryConfidence": "high" only when the posting states pay explicitly.
+- "salaryConfidence": "high" only when the posting states pay explicitly. A figure the
+  job board ESTIMATED (see "Pay source") is never "high" — use "low" or "medium", and do
+  not let an estimate carry the pay axis on its own.
 - "colIndex": cost-of-living index of the job's location (national average 100;
   ${profile.location.city} is ${profile.location.colIndex}). null when the location is unstated.
 - "adjustedSalaryMin/Max": the estimated annual pay converted to ${profile.location.city}

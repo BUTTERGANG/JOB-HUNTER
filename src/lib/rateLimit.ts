@@ -10,11 +10,11 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
-const rateLimitStore = new Map<string, RateLimitEntry>();
-
 export interface RateLimitConfig {
   maxRequests: number;
   windowMs: number;
+  /** Identifies the limiter, for diagnostics and the response headers. */
+  name?: string;
 }
 
 export interface RateLimitResult {
@@ -25,14 +25,35 @@ export interface RateLimitResult {
 }
 
 export function createRateLimiter(config: RateLimitConfig) {
+  // Each limiter owns its own store.
+  //
+  // This used to be a single module-level Map keyed only by the client
+  // identifier, which every limiter shared: a request to any rate-limited route
+  // incremented the same counter the AI limiter read, so ~10 requests anywhere
+  // started returning 429 on AI routes, and one bulk-scan call (2 per 5 minutes)
+  // could lock out the entire API for five minutes.
+  const store = new Map<string, RateLimitEntry>();
+  const name = config.name ?? "api";
+  let lastSweep = Date.now();
+
   return function rateLimit(identifier: string): RateLimitResult {
     const now = Date.now();
-    const entry = rateLimitStore.get(identifier);
+
+    // Opportunistic sweep so a long-lived server doesn't keep one entry per client
+    // IP forever (the old store never pruned anything).
+    if (now - lastSweep > config.windowMs) {
+      lastSweep = now;
+      for (const [key, value] of store) {
+        if (now > value.resetAt) store.delete(key);
+      }
+    }
+
+    const entry = store.get(identifier);
 
     if (!entry || now > entry.resetAt) {
       // First request or window expired
       const resetAt = now + config.windowMs;
-      rateLimitStore.set(identifier, { count: 1, resetAt });
+      store.set(identifier, { count: 1, resetAt });
       return {
         allowed: true,
         remaining: config.maxRequests - 1,
@@ -41,6 +62,7 @@ export function createRateLimiter(config: RateLimitConfig) {
           "X-RateLimit-Limit": String(config.maxRequests),
           "X-RateLimit-Remaining": String(config.maxRequests - 1),
           "X-RateLimit-Reset": String(Math.ceil(resetAt / 1000)),
+          "X-RateLimit-Policy": name,
         },
       };
     }
@@ -56,6 +78,7 @@ export function createRateLimiter(config: RateLimitConfig) {
           "X-RateLimit-Remaining": "0",
           "X-RateLimit-Reset": String(Math.ceil(entry.resetAt / 1000)),
           "Retry-After": String(Math.ceil((entry.resetAt - now) / 1000)),
+          "X-RateLimit-Policy": name,
         },
       };
     }
@@ -63,7 +86,7 @@ export function createRateLimiter(config: RateLimitConfig) {
     // Increment count
     entry.count++;
     const remaining = config.maxRequests - entry.count;
-    rateLimitStore.set(identifier, entry);
+    store.set(identifier, entry);
     return {
       allowed: true,
       remaining,
@@ -72,6 +95,7 @@ export function createRateLimiter(config: RateLimitConfig) {
         "X-RateLimit-Limit": String(config.maxRequests),
         "X-RateLimit-Remaining": String(remaining),
         "X-RateLimit-Reset": String(Math.ceil(entry.resetAt / 1000)),
+        "X-RateLimit-Policy": name,
       },
     };
   };
@@ -98,30 +122,35 @@ export function getClientIdentifier(request: NextRequest): string {
 
 // AI endpoints - strict limits (expensive API calls)
 export const aiRateLimiter = createRateLimiter({
+  name: "ai",
   maxRequests: 10,
   windowMs: 60_000, // 10 requests per minute
 });
 
 // Scraping endpoints - moderate limits
 export const scrapeRateLimiter = createRateLimiter({
+  name: "scrape",
   maxRequests: 20,
   windowMs: 60_000, // 20 requests per minute
 });
 
 // Settings - generous limits
 export const settingsRateLimiter = createRateLimiter({
+  name: "settings",
   maxRequests: 60,
   windowMs: 60_000, // 60 requests per minute
 });
 
 // General API - generous limits
 export const generalRateLimiter = createRateLimiter({
+  name: "general",
   maxRequests: 100,
   windowMs: 60_000, // 100 requests per minute
 });
 
 // Bulk scan - very strict (long-running operation)
 export const bulkScanRateLimiter = createRateLimiter({
+  name: "bulk-scan",
   maxRequests: 2,
   windowMs: 300_000, // 2 requests per 5 minutes
 });

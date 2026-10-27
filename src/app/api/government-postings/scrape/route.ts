@@ -8,6 +8,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { saveGovScrapeRun } from "@/lib/db/queries";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
+import { resolvePythonBin } from "@/lib/pythonBin";
 
 const exec = promisify(execFile);
 
@@ -55,7 +56,7 @@ async function POST_handler(request: NextRequest) {
   let stderr = "";
   try {
     const r = await exec(
-      "python3",
+      resolvePythonBin().bin,
       [
         scriptPath,
         "--keyword", keyword || "",

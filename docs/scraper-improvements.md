@@ -1,7 +1,7 @@
 # Scraper — Working Notes
 
 Status doc for the job scraper, especially the **all-states Bulk Market Scan**.
-Last updated **2026-06-19**.
+Last updated **2026-10-27**.
 
 ## Architecture recap
 
@@ -24,7 +24,10 @@ The scrape flow spans these layers:
    - Wraps `python-jobspy`. Loops over sites per search; supports per-site result caps
      (`results_by_site`) and a `proxies` list.
 
-There is also a standalone copy at repo root `scrape_jobs.py` (not used by the app).
+The Python interpreter is resolved at runtime (`src/lib/pythonBin.ts`):
+`SCRAPE_PYTHON_BIN` → the `python_bin` setting → `.venv/bin/python3` → `venv/bin/python3` →
+`python3` on PATH. A project `.venv` is the intended default; when the resolved interpreter
+cannot import `jobspy` the API says so explicitly instead of reporting 0 results.
 
 ## JobSpy limits (verified from source — `pip show -f python-jobspy`)
 
@@ -42,6 +45,25 @@ There is also a standalone copy at repo root `scrape_jobs.py` (not used by the a
   passing a *list* of proxy strings rotates per request.
 - **No 1000-cap config and no "140 cap"** exists — low bulk counts were single-IP throttling,
   not a configured limit.
+
+## Pay units (2026-10-27) — do not regress this
+
+`build_output()` in `scripts/scrape_jobs.py` must keep emitting **`Salary Interval`** and
+**`Salary Source`** alongside the amounts, and must keep `enforce_annual_salary=False`.
+
+Two separate traps, both of which silently corrupted pay:
+
+1. **Dropping the interval column.** An hourly rate then reads as an annual salary downstream
+   and scores as sub-poverty pay. `scrape_results.salary_interval` exists for this; the column
+   must keep travelling into the ranker prompt.
+2. **`enforce_annual_salary=True`.** jobspy then multiplies an hourly rate by 2080 and relabels
+   the unit "yearly": a $60/hr per-event wedding videographer is stored as $124,800/yr (which
+   implies a full year of full-time work) and a seasonal $14/hr gig as $29,120/yr. The quoted
+   rate and its unit must survive intact — `src/lib/pay.ts` annualises using the posting's own
+   stated weekly hours when an annual figure is genuinely needed.
+
+Also emitted for contract/gig matching: `Is Remote`, `Job Level`, `Listing Type`,
+`Company Industry`, `Experience Range`.
 
 ## Implemented
 
@@ -92,6 +114,8 @@ too. Files: new API route(s), DB schema for job/progress, `page.tsx` rework to p
 | `scrape_proxies` | Newline-separated proxy list (`user:pass@host:port`). Masked secret. |
 | `scrape_proxy_sessions` | Int (default 8). DataImpulse sticky sessions to fan a credential into. |
 | `scrape_dedupe_enabled` | `"true"`/`"false"` — skip jobs seen in previous runs (off in bulk via `skipDedupe`). |
+| `python_bin` | Optional path to the scraper's Python interpreter. Empty = auto-detect `.venv` → `venv` → PATH. |
+| `SCRAPE_PYTHON_BIN` (env) | Same as above, for CI/one-off runs. Takes precedence over the setting. |
 
 ## Coverage / anti-block knobs
 
@@ -106,7 +130,8 @@ Daily use ≈ $1–2/month. Measure real usage on the DataImpulse dashboard afte
 
 ## Quick test notes
 - Standalone scraper: `cd job-hunt-app && python3 scripts/scrape_jobs.py`
-  (writes to `scraped/jobs_<timestamp>.csv`). Needs `pip install -U python-jobspy`.
+  (writes to `scraped/jobs_<timestamp>.csv`). Run it through the project venv:
+  `.venv/bin/python3 scripts/scrape_jobs.py` — the app resolves the same interpreter.
 - Test a single state through the proxy: write a temp config with `proxies`, `sites`, and
   `results_by_site`, then `python3 scripts/scrape_jobs.py --config <cfg> --out <csv>`.
 - Confirm a US proxy exit before a real run (DataImpulse MCP `proxy_check`, or any IP echo

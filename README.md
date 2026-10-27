@@ -7,7 +7,7 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 - **Multi-board scraping** — LinkedIn, Indeed, Glassdoor, ZipRecruiter, Google via `python-jobspy`
 - **All-states Bulk Market Scan** — Sweep all 50 states + DC with per-site result caps, automatic retry/backoff, and a live ETA
 - **Residential proxy support** — Route scrapes through rotating proxies (e.g. DataImpulse) to avoid single-IP rate limiting; per-site status (`ok` / `blocked` / counts) surfaced in the UI
-- **AI ranking from your target profile** — Each job is scored by Anthropic Claude across pay, interest, responsibility, hours, flexibility, location, accessibility and engagement type. Every weight, interest and rule lives in an editable **Target Profile**, not in the prompt
+- **AI ranking from your target profile** — Each job is scored by the configured model (OpenRouter or Anthropic) across pay, interest, responsibility, hours, flexibility, location, accessibility and engagement type. Every weight, interest and rule lives in an editable **Target Profile**, not in the prompt
 - **Unit-aware pay** — Hourly, daily, per-event and annual rates are kept distinct end to end; an hourly rate is never read as an annual salary
 - **Earnings-aware commitment rule** — A role clears the bar by meeting either your weekly-hours minimum (default 20h) or your weekly-earnings floor (default $600). A short week at a high rate is accepted, not fined; a genuine shortfall loses points graduated by how short it is. Always ranked and shown, never hidden
 - **BLS wage benchmarks** — National OEWS wage data (by SOC occupation code) from the Bureau of Labor Statistics for salary comparison
@@ -37,7 +37,8 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 ## Prerequisites
 
 - Node.js 18+
-- Python 3.10+ with `python-jobspy` installed (`pip install python-jobspy`)
+- Python 3.10+ with `python-jobspy` — create a project virtualenv and the app picks it up
+  automatically (see below)
 - An LLM API key — OpenRouter (recommended) or Anthropic direct
 
 ## Getting Started
@@ -53,8 +54,24 @@ npm install
 ### 2. Set up Python scraping dependency
 
 ```bash
-pip install python-jobspy
+python3 -m venv --copies .venv
+.venv/bin/pip install python-jobspy
 ```
+
+`--copies` matters: a default venv symlinks `bin/python` to an interpreter outside the project,
+and Turbopack panics on that during `next build`. If you'd rather keep the venv elsewhere,
+point `python_bin` (or `SCRAPE_PYTHON_BIN`) at it instead.
+
+The app resolves the scraper's interpreter in this order: `SCRAPE_PYTHON_BIN` →
+the `python_bin` setting → `.venv/bin/python3` → `venv/bin/python3` → `python3` on PATH.
+
+Do **not** skip this and rely on `python3` being right: on macOS that is the system 3.9
+interpreter with no `jobspy`, and the failure surfaces as "0 results" rather than a missing
+module — it looks like the job board blocked you. If the interpreter can't import its
+dependencies the API now says so explicitly instead.
+
+For the WorkForIndiana government scraper, also install Playwright:
+`.venv/bin/pip install playwright && .venv/bin/playwright install chromium`
 
 ### 3. Run the development server
 
@@ -136,17 +153,33 @@ job-hunt-app/
 │   │   ├── scrape/              # Scraping UI (new + history)
 │   │   ├── analysis/            # Market Analysis dashboard
 │   │   └── settings/            # Settings page
-│   ├── components/              # Shared UI (sidebar, etc.)
+│   ├── components/
+│   │   ├── layout/              # Sidebar / nav
+│   │   ├── settings/            # Target-profile editor, AI-provider card
+│   │   └── ui/                  # shadcn primitives
 │   └── lib/
-│       ├── ai/                  # Claude prompt engineering
-│       ├── db/                  # SQLite schema, queries, migrations
+│       ├── ai/
+│       │   ├── llm.ts           # Provider-agnostic LLM access (OpenRouter / Anthropic)
+│       │   ├── analyzeJobs.ts   # Batch ranker: prompt build + result normalisation
+│       │   └── extractJobFromUrl.ts  # Structured extraction from a posting page
+│       ├── db/                  # SQLite schema (ddl), queries, idempotent migrations
 │       ├── notifications/       # Discord embed formatting
-│       ├── scrapeRunner.ts      # Orchestrates scrape → analyze → save (proxy expansion, per-site status)
+│       ├── profile.ts           # Target profile: defaults, weights, prompt block
+│       ├── match.ts             # Commitment rule + weighted aggregation + flags
+│       ├── pay.ts               # Unit-aware pay normalisation (hr/day/wk/yr/per-event)
+│       ├── pythonBin.ts         # Resolves + validates the scraper's Python interpreter
+│       ├── scrapeRunner.ts      # Orchestrates scrape → analyze → save (proxies, per-site status)
+│       ├── analysisRunner.ts    # Batch ranking runs over unanalyzed listings
 │       ├── resumeTemplate.ts    # Builds a .docx from the structured tailored-resume JSON
 │       ├── jobIdentity.ts       # URL/text normalization & dedupe keys
 │       └── socSectors.ts        # SOC major group → sector name mapping
 ├── scripts/
-│   └── scrape_jobs.py           # Python jobspy wrapper
+│   ├── scrape_jobs.py           # Python jobspy wrapper (keeps the quoted pay unit)
+│   ├── scrape_indiana.py        # Playwright scraper for WorkForIndiana
+│   ├── import-openrouter-key.ts # Import a key from the environment into settings
+│   ├── verify-ranking.ts        # Offline ranking checks (no API key needed)
+│   ├── verify-pipeline.ts       # End-to-end pipeline verification against a running app
+│   └── rank-probe.ts            # Live ranking probe over real scraped listings
 └── data/                        # SQLite database (gitignored)
 ```
 
@@ -160,11 +193,17 @@ job-hunt-app/
 | `/api/scrapes` | GET | List scrape run history |
 | `/api/scrapes/[id]` | GET | Get scrape run detail + results |
 | `/api/scrapes/[id]` | DELETE | Delete a scrape run |
+| `/api/scrape/bulk` | POST | All-states bulk market scan (server-side) |
+| `/api/analyze-url` | POST | Extract + rank from a posting URL or pasted text |
+| `/api/analysis/backfill` | GET/POST | Batch-ranking run status / start / cancel |
 | `/api/jobs` | GET | List tracked jobs |
 | `/api/jobs` | POST | Create a tracked job (with duplicate check) |
 | `/api/jobs/import` | POST | Bulk import from scrape results |
 | `/api/jobs/[id]` | GET/PATCH/DELETE | Job CRUD |
 | `/api/jobs/[id]/analysis` | POST | Re-analyze a job |
+| `/api/jobs/[id]/fetch-description` | POST | Fetch + extract a tracked job's posting text |
+| `/api/government-postings/scrape` | POST | Scrape WorkForIndiana state postings |
+| `/api/admin/import-bls` | GET/POST | BLS OEWS wage data status / import |
 | `/api/ai/tailor` | POST | Generate a tailored resume (structured JSON) from the master resume + JD |
 | `/api/ai/test` | POST | Check the configured LLM provider/model with one tiny completion |
 | `/api/jobs/[id]/resume` | GET/PUT | Read / save the stored tailored resume for a job |
@@ -174,6 +213,30 @@ job-hunt-app/
 | `/api/analysis/market` | GET | Aggregated market analysis data (deduped by URL) |
 | `/api/jobs/[id]/check-listing` | POST | Recheck one job's original posting for availability, log the result to history |
 | `/api/jobs/check-listings` | POST | Recheck every tracked job with a URL (all-time, not just recent scrapes) |
+
+## Verifying the pipeline
+
+Three scripts, in increasing order of what they need:
+
+```bash
+# 1. Offline ranking logic — no API key, no network. Units, the commitment rule,
+#    weight normalisation, penalty visibility, profile round-trips, and that no
+#    persona text survives in the prompt.
+node_modules/.bin/tsx scripts/verify-ranking.ts
+
+# 2. Live ranking — runs the real ranker through the configured provider against the
+#    real scraped listings plus off-profile controls, and prints axes, pay unit,
+#    hours verdict, flags, penalties and notes.
+node_modules/.bin/tsx scripts/rank-probe.ts
+
+# 3. Whole pipeline against a running dev server — scrape (Python) → rank → persist →
+#    market analysis → import to tracker → listing recheck → resume JSON → DOCX →
+#    dashboard → paste-a-posting. Prints PASS/FAIL per stage.
+node_modules/.bin/tsx scripts/verify-pipeline.ts
+```
+
+`verify-pipeline.ts` writes a **placeholder** master resume for the resume stages and removes
+it at the end, so it never masquerades as the real one.
 
 ## Discord Notifications
 
@@ -318,8 +381,14 @@ listing is still live.
 SQLite stored at `data/jobhunt.db`. Main tables:
 
 - **`jobs`** — Tracked jobs with status, tier, salary, scores, notes, etc.
-- **`scrape_runs`** / **`scrape_results`** — Each scrape session and its individual listings
-- **`job_analysis`** — AI scores per scrape result (rank + per-dimension + extracted details)
+- **`scrape_runs`** / **`scrape_results`** — Each scrape session and its individual listings.
+  Listings carry `salary_interval` (the pay unit — never dropped), `salary_source`
+  (`direct_data` vs an `estimated` figure), `is_remote`, `job_level`, `listing_type`,
+  `company_industry` and `experience_range`
+- **`job_analysis`** — AI scores per scrape result: the weighted `rank_score`, the per-axis
+  scores (pay, interest, responsibility, hours, flexibility, location, accessibility,
+  engagement), `pay_interval`/`pay_label`, the `hours_verdict`, advisory `flags`, the
+  `penalties` that were applied, plus extracted details and salary estimates
 - **`resumes`** — Master resume (`type: "master"`) and per-job tailored resumes (`type: "tailored"`, one row per generation, latest wins)
 - **`settings`** — Key/value configuration (API keys, schedule, Discord, salary targets, proxies)
 - **`bls_wages`** — BLS OEWS national wage data keyed by SOC occupation code (`occ_code`); populated on demand for salary benchmarking
@@ -352,7 +421,12 @@ node_modules/.bin/tsx scripts/import-openrouter-key.ts --dry-run
 
 ## Environment Variables
 
-None required. All configuration is stored in the database via the Settings UI. Secrets — the Anthropic API key, Discord webhook URL, and **scrape proxy credentials** (`scrape_proxies`, with pool size `scrape_proxy_sessions`) — are saved to the `settings` table in the gitignored `data/` DB and are never returned in plaintext by the settings API.
+None required. All configuration is stored in the database via the Settings UI. Secrets — the
+LLM provider keys (`openrouter_api_key` / `anthropic_api_key`), the Discord webhook URL, and
+**scrape proxy credentials** (`scrape_proxies`, with pool size `scrape_proxy_sessions`) — are
+saved to the `settings` table in the gitignored `data/` DB and are never returned in plaintext
+by the settings API. `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` in the environment are used as a
+fallback when no key is stored, and `SCRAPE_PYTHON_BIN` overrides the scraper's interpreter.
 
 ## Scripts
 

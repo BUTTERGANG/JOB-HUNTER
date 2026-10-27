@@ -90,6 +90,7 @@ async function runAnalysis(runId: string): Promise<void> {
         // The pay UNIT travels with the amount — without it an hourly rate is
         // read as an annual salary and scores as sub-poverty pay.
         salaryInterval: scrapeResults.salaryInterval,
+        salarySource: scrapeResults.salarySource,
         jobType: scrapeResults.jobType,
         description: scrapeResults.description,
         isRemote: scrapeResults.isRemote,
@@ -116,6 +117,7 @@ async function runAnalysis(runId: string): Promise<void> {
         salaryMin: r.salaryMin ?? null,
         salaryMax: r.salaryMax ?? null,
         salaryInterval: r.salaryInterval ?? null,
+        salarySource: r.salarySource ?? null,
         jobType: r.jobType ?? null,
         description: r.description ?? null,
         isRemote: r.isRemote ?? null,

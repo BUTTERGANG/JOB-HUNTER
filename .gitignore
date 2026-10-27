@@ -50,6 +50,10 @@ next-env.d.ts
 .claude/
 .claire/
 
+# Python virtualenv for the scraper (python-jobspy)
+.venv/
+venv/
+
 # Python caches
 __pycache__/
 *.pyc

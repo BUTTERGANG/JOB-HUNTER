@@ -66,7 +66,14 @@ def run_search(search: dict, config: dict) -> "pd.DataFrame":
                 results_wanted=results_by_site.get(site) or config.get("results", 25),
                 hours_old=config.get("hours", 168),
                 country_indeed=config.get("country", "USA"),
-                enforce_annual_salary=True,
+                # Do NOT let jobspy annualise. It multiplies an hourly rate by 2080
+                # and relabels the interval "yearly", so a $60/hr per-event wedding
+                # videographer is stored as $124,800/yr (implying a full year of
+                # full-time work) and a seasonal $14/hr gig as $29,120/yr. The quoted
+                # amount and its unit must survive; src/lib/pay.ts annualises using
+                # the posting's own stated weekly hours when an annual figure is
+                # genuinely needed.
+                enforce_annual_salary=False,
                 distance=config.get("distance", 50),
             )
             # google_search_term override — used when search_term is empty so
