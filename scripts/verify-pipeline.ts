@@ -22,6 +22,10 @@
  *      BASE=http://localhost:3002 node_modules/.bin/tsx scripts/verify-pipeline.ts
  */
 
+import fs from "fs";
+import path from "path";
+import Database from "better-sqlite3";
+
 /* eslint-disable @typescript-eslint/no-explicit-any -- this harness consumes arbitrary JSON
    from HTTP endpoints and asserts on whichever fields each stage produces. Narrowing every
    field into interfaces would add a lot of noise without adding safety to a verification
@@ -104,11 +108,16 @@ async function main() {
   );
 
   // ── 2. Scrape ───────────────────────────────────────────────────────────────
+  // skipDedupe keeps this stage idempotent: without it a second run of this script
+  // correctly finds every listing already seen and returns nothing, which looks like
+  // a broken scraper. Cross-run dedupe is asserted separately below.
+  const SCRAPE_SEARCH = { term: "photographer", location: "Indianapolis, IN" };
   const scrape = await api("POST", "/api/scrape", {
-    searches: [{ term: "photographer", location: "Indianapolis, IN" }],
+    searches: [SCRAPE_SEARCH],
     sites: ["indeed"],
     results: 25,
     hours: 168,
+    skipDedupe: true,
   });
   const jobs: any[] = scrape.json?.jobs ?? [];
   const withAnalysis = jobs.filter((j) => j.analysis);
@@ -151,10 +160,29 @@ async function main() {
     );
   }
 
+  // ── 2b. Cross-run dedupe ────────────────────────────────────────────────────
+  // The same search again, with dedupe ON (the default): every listing was just
+  // stored, so it must be recognised as previously seen and filtered out.
+  const reScrape = await api("POST", "/api/scrape", {
+    searches: [SCRAPE_SEARCH],
+    sites: ["indeed"],
+    results: 25,
+    hours: 168,
+  });
+  const d = reScrape.json?.dedupe;
+  record(
+    "cross-run dedupe recognises already-seen listings",
+    reScrape.status === 200 && (d?.previousRunDuplicates ?? 0) > 0 && (d?.outputCount ?? 0) === 0,
+    `input=${d?.inputCount} withinRun=${d?.withinRunDuplicates} previousRun=${d?.previousRunDuplicates} output=${d?.outputCount}`
+  );
+
   // ── 3. Scrape history + detail ──────────────────────────────────────────────
   const runs = await api("GET", "/api/scrapes");
   const runList: any[] = runs.json?.runs ?? runs.json?.scrapes ?? (Array.isArray(runs.json) ? runs.json : []);
-  const runId = runList[0]?.id;
+  // The newest run may legitimately be empty (the dedupe re-scrape above), so pick
+  // the newest one that actually stored listings.
+  const foundCount = (r: any) => Number(r?.totalFound ?? r?.total_found ?? r?.count ?? 0);
+  const runId = (runList.find((r) => foundCount(r) > 0) ?? runList[0])?.id;
   record(
     "scrape run persisted",
     runs.status === 200 && runList.length > 0,
@@ -198,10 +226,14 @@ async function main() {
     description: j.description,
   }));
   const imp = await api("POST", "/api/jobs/import", { jobs: toImport });
+  const accountedFor = (imp.json?.created ?? 0) + (imp.json?.skippedDuplicates ?? 0);
   record(
     "import scraped listings into the tracker",
-    (imp.status === 200 || imp.status === 201) && (imp.json?.created ?? 0) > 0,
-    `created=${imp.json?.created} skipped=${imp.json?.skippedDuplicates} errors=${imp.json?.errors?.length ?? 0}`
+    (imp.status === 200 || imp.status === 201) &&
+      accountedFor === toImport.length &&
+      (imp.json?.errors?.length ?? 0) === 0,
+    `sent=${toImport.length} created=${imp.json?.created} skippedDuplicates=${imp.json?.skippedDuplicates} ` +
+      `errors=${imp.json?.errors?.length ?? 0} (every input accounted for)`
   );
 
   const jobList = await api("GET", "/api/jobs");
@@ -330,12 +362,33 @@ Some college coursework, no degree.
     `basis=${pa?.hoursVerdict?.basis} earnings=$${pa?.hoursVerdict?.weeklyEarnings}/wk penalty=${pa?.hoursVerdict?.penaltyPoints}`
   );
 
-  // ── Cleanup: remove the placeholder resume ──────────────────────────────────
+  // ── Cleanup ─────────────────────────────────────────────────────────────────
+  // Remove BOTH the placeholder master resume and any tailored resumes generated
+  // from it. Leaving the tailored ones behind is worse than leaving the master:
+  // the job detail page would show a resume built from fake experience.
+  //
+  // The tailored rows are deleted directly through the SQLite file (there is no
+  // delete endpoint for a single resume), matching only rows that contain this
+  // script's marker so a real resume can never be caught by it.
   const cleanup = await api("PUT", "/api/settings", { masterResume: "" });
+  let removedTailored = 0;
+  try {
+    const dbPath = path.resolve(process.cwd(), "data", "jobhunt.db");
+    if (fs.existsSync(dbPath)) {
+      const db = new Database(dbPath);
+      const info = db
+        .prepare("DELETE FROM resumes WHERE type = 'tailored' AND content LIKE ?")
+        .run("%PLACEHOLDER RESUME%");
+      removedTailored = info.changes ?? 0;
+      db.close();
+    }
+  } catch (e) {
+    console.log(`        (could not clean tailored resumes: ${e instanceof Error ? e.message : e})`);
+  }
   record(
     "placeholder resume removed",
     cleanup.status === 200,
-    "the test resume is not left behind in the app"
+    `master resume cleared; ${removedTailored} placeholder-derived tailored resume(s) deleted`
   );
 
   finish();

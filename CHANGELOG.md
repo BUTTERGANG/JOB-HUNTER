@@ -4,12 +4,13 @@ All notable changes to JOB-HUNTER. Newest first.
 
 ## 2026-10-27 — Pipeline verification pass: three real bugs, docs brought current
 
-Added `scripts/verify-pipeline.ts` — 22 stages against a running server, asserting on real
-responses and real database rows: LLM reachable → scrape (Python) → rank → persist → run
-detail → market analysis → import to tracker → tracked detail → listing recheck → rate-limit
-isolation → resume JSON → resume persistence → DOCX export → dashboard → paste-a-posting.
-It writes a placeholder master resume for the resume stages and removes it afterwards.
-**22/22 pass.**
+Added `scripts/verify-pipeline.ts` — 23 stages against a running server, asserting on real
+responses and real database rows: LLM reachable → scrape (Python) → rank → cross-run dedupe →
+persist → run detail → market analysis → import to tracker → tracked detail → listing recheck →
+rate-limit isolation → resume JSON → resume persistence → DOCX export → dashboard →
+paste-a-posting. It is idempotent (re-runnable against a populated database), writes a
+placeholder master resume for the resume stages and deletes both that and any resume tailored
+from it afterwards. **23/23 pass.**
 
 Three bugs it found and this commit fixes:
 
