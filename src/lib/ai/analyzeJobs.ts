@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { chatComplete, extractJson, LlmError } from "@/lib/ai/llm";
 import {
   DEFAULT_PROFILE,
   buildProfilePromptBlock,
@@ -51,6 +51,8 @@ export interface JobAnalysisResult {
   hoursVerdict: HoursVerdict | null;
   /** Advisory labels. Informational only; never used to drop a listing. */
   flags: SoftFlag[];
+  /** Points removed by deterministic rules, with the reason. Never hidden. */
+  penalties: { label: string; points: number }[];
   schedule: JobSchedule;
   requirements: JobRequirements;
   benefits: string[];
@@ -294,6 +296,7 @@ export function normalizeResult(
     payLabel: pay.label,
     hoursVerdict,
     flags: [...buildSoftFlags({ hours: hoursVerdict, interests: matches, profile }), ...modelFlags],
+    penalties: ranked.penalties,
     schedule: {
       days: Array.isArray(raw.schedule?.days)
         ? raw.schedule.days.filter((d): d is string => typeof d === "string")
@@ -344,47 +347,51 @@ export function normalizeResult(
 }
 
 async function analyzeChunk(
-  client: Anthropic,
   jobs: JobInput[],
   profile: TargetProfile
 ): Promise<JobAnalysisResult[]> {
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 16000,
-    messages: [{ role: "user", content: buildPrompt(jobs, profile) }],
+  const res = await chatComplete({
+    role: "ranker",
+    user: buildPrompt(jobs, profile),
+    // A full chunk of scored listings (axes + facts + an annualised salary
+    // estimate each) needs real headroom; the old 12000 ceiling truncated runs.
+    maxTokens: 16000,
+    jsonObject: true,
   });
 
-  // Models with extended thinking return a leading "thinking" block — take the
-  // first actual text block rather than assuming content[0].
-  const block = response.content.find((b) => b.type === "text");
-  const text = block && block.type === "text" ? block.text : "";
-
-  // Strip a ```json fence if the model added one, then take the outermost array.
-  const unfenced = text.replace(/```(?:json)?\s*/gi, "").replace(/```/g, "");
-  const match = unfenced.match(/\[[\s\S]*\]/);
-  if (!match) {
-    throw new Error(`analyzeJobs: no JSON array in response for chunk of ${jobs.length}`);
+  if (res.truncated) {
+    throw new LlmError(
+      `The ranking response for a chunk of ${jobs.length} hit the token ceiling and is incomplete.`,
+      502
+    );
   }
 
-  const parsed: ModelJobResult[] = JSON.parse(match[0]);
+  const parsed = extractJson<ModelJobResult[]>(res.text, "array");
   if (!Array.isArray(parsed) || parsed.length !== jobs.length) {
-    throw new Error(`analyzeJobs: expected ${jobs.length} results, got ${parsed?.length ?? 0}`);
+    throw new LlmError(
+      `analyzeJobs: expected ${jobs.length} scored listings, got ${Array.isArray(parsed) ? parsed.length : 0}`,
+      502
+    );
   }
 
   return parsed.map((r, i) => normalizeResult(r ?? {}, jobs[i], profile));
 }
 
+/**
+ * Rank a batch of listings.
+ *
+ * The provider, key and model come from `@/lib/ai/llm` (OpenRouter by default);
+ * callers no longer pass an API key around, and no model id is hardcoded here.
+ */
 export async function analyzeJobsBatch(
   jobs: JobInput[],
-  apiKey: string,
   profile: TargetProfile = DEFAULT_PROFILE
 ): Promise<JobAnalysisResult[]> {
-  const client = new Anthropic({ apiKey });
   const chunks = chunkArray(jobs, CHUNK_SIZE);
   const allResults: JobAnalysisResult[] = [];
 
   for (const chunk of chunks) {
-    const results = await analyzeChunk(client, chunk, profile);
+    const results = await analyzeChunk(chunk, profile);
     allResults.push(...results);
   }
 

@@ -105,6 +105,7 @@ export const SCHEMA_SQL = `
     pay_label TEXT,
     hours_verdict TEXT,
     flags TEXT,
+    penalties TEXT,
     schedule TEXT,
     benefits TEXT,
     notes TEXT,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
-import { getSetting, getMasterResume, saveTailoredResume, getAnalysis } from "@/lib/db/queries";
+import { getMasterResume, saveTailoredResume, getAnalysis } from "@/lib/db/queries";
+import { chatComplete, extractJson, hasLlmKey, llmKeyHint, LlmError } from "@/lib/ai/llm";
 import { validateTailorRequest } from "@/lib/validation";
 import { aiRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
@@ -36,12 +36,9 @@ async function POST_handler(request: NextRequest) {
     return Response.json({ error: "Job description is required" }, { status: 400 });
   }
 
-  const apiKey = getSetting("anthropic_api_key");
-  if (!apiKey) {
-    return Response.json(
-      { error: "Anthropic API key not configured. Go to Settings to add it." },
-      { status: 400 }
-    );
+  // Provider/key/model come from the LLM layer — OpenRouter by default.
+  if (!hasLlmKey()) {
+    return Response.json({ error: llmKeyHint() }, { status: 400 });
   }
 
   const masterResume = getMasterResume();
@@ -68,8 +65,6 @@ async function POST_handler(request: NextRequest) {
       if (lines.length) intel = `\n\n## POSTING INTEL (prioritize these where my experience supports them):\n${lines.join("\n")}`;
     }
   }
-
-  const client = new Anthropic({ apiKey });
 
   const prompt = `I will give you two documents:
 1. My MASTER RESUME (contains all my experience)
@@ -125,44 +120,41 @@ ${masterResume.content}
 ## JOB DESCRIPTION:
 ${validation.data!.description}${intel}`;
 
-  let response;
+  let result;
   try {
-    response = await client.messages.create({
-      model: "claude-sonnet-5",
+    result = await chatComplete({
+      role: "tailor",
+      user: prompt,
       // A full structured résumé (summary + competencies + 3-4 roles + certs)
       // runs well past 4096 output tokens; at 4096 the JSON was getting cut off
       // mid-array, producing invalid JSON that silently degraded to "legacy
       // markdown". 8192 gives comfortable headroom.
-      max_tokens: 8192,
-      messages: [{ role: "user", content: prompt }],
+      maxTokens: 8192,
+      jsonObject: true,
+      timeoutMs: 180_000,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
-    return Response.json({ error: `AI request failed: ${message}` }, { status: 502 });
+    const status = e instanceof LlmError ? e.status : 502;
+    return Response.json({ error: `AI request failed: ${message}` }, { status });
   }
+
+  const text = result.text;
 
   // If the model hit the token ceiling the JSON is truncated and unparseable.
   // Fail loudly instead of persisting a broken résumé the UI can't render.
-  if (response.stop_reason === "max_tokens") {
+  if (result.truncated) {
     return Response.json(
       { error: "Resume was too long and got cut off. Please try generating again." },
       { status: 502 }
     );
   }
 
-  // Models with extended thinking return a leading "thinking" block, so pull the
-  // first actual text block rather than assuming content[0].
-  const textBlock = response.content.find((b) => b.type === "text");
-  const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
-
-  // Parse JSON response. Strip a ```json ... ``` code fence if the model added
-  // one, then grab the outermost {...} object.
+  // Parse the JSON object. Fences and surrounding prose are tolerated; a genuine
+  // parse failure falls back to storing the raw markdown (legacy format).
   let resumeJson: Record<string, unknown>;
   try {
-    const unfenced = text.replace(/```(?:json)?\s*/gi, "").replace(/```/g, "");
-    const jsonMatch = unfenced.match(/\{[\s\S]*\}/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : unfenced;
-    resumeJson = JSON.parse(jsonStr);
+    resumeJson = extractJson<Record<string, unknown>>(text, "object");
   } catch {
     // Fallback: return raw markdown if JSON parsing fails (backward compatible)
     if (validation.data!.jobId) {

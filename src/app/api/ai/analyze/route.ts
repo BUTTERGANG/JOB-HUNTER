@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
-import { getSetting, getMasterResume, saveAnalysis, updateJob, getJobById } from "@/lib/db/queries";
+import { getMasterResume, saveAnalysis, updateJob, getJobById, getTargetProfile } from "@/lib/db/queries";
 import { analyzeJobsBatch, type JobAnalysisResult } from "@/lib/ai/analyzeJobs";
+import { chatComplete, extractJson, hasLlmKey, llmKeyHint, LlmError } from "@/lib/ai/llm";
 import { validateAnalyzeRequest } from "@/lib/validation";
 import { aiRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
@@ -13,6 +13,16 @@ interface JobInput {
   salaryMax: number | null;
   jobType: string | null;
   description: string | null;
+}
+
+/** Shape the ATS prompt asks the model for. */
+interface AtsAnalysis {
+  keywords?: string[];
+  fitScore?: number;
+  redFlags?: string[];
+  mustHave?: string[];
+  niceToHave?: string[];
+  questions?: string[];
 }
 
 async function POST_handler(request: NextRequest) {
@@ -37,12 +47,9 @@ async function POST_handler(request: NextRequest) {
     return Response.json({ error: "Job description is required" }, { status: 400 });
   }
 
-  const apiKey = getSetting("anthropic_api_key");
-  if (!apiKey) {
-    return Response.json(
-      { error: "Anthropic API key not configured. Go to Settings to add it." },
-      { status: 400 }
-    );
+  // Provider/key/model come from the LLM layer — OpenRouter by default.
+  if (!hasLlmKey()) {
+    return Response.json({ error: llmKeyHint() }, { status: 400 });
   }
 
   const masterResume = getMasterResume();
@@ -65,7 +72,7 @@ async function POST_handler(request: NextRequest) {
       };
       
       try {
-        const analyses = await analyzeJobsBatch([jobInput], apiKey);
+        const analyses = await analyzeJobsBatch([jobInput], getTargetProfile());
         rankAnalysis = analyses[0] ?? null;
         if (rankAnalysis?.socCode) {
           const { getBLSWage } = await import("@/lib/db/queries");
@@ -78,7 +85,6 @@ async function POST_handler(request: NextRequest) {
   }
 
   // Run the ATS keyword analysis
-  const client = new Anthropic({ apiKey });
   const prompt = `Analyze this job description and return a JSON object with exactly these fields:
 {
   "keywords": ["top 5-8 ATS keywords needed in a resume"],
@@ -96,27 +102,26 @@ ${validation.data!.description}
 
 Respond with ONLY the JSON object, no markdown formatting, no explanation.`;
 
-  let response;
+  let result;
   try {
-    response = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 2048,
-      messages: [{ role: "user", content: prompt }],
+    result = await chatComplete({
+      role: "ats",
+      user: prompt,
+      maxTokens: 2048,
+      jsonObject: true,
+      timeoutMs: 90_000,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
-    return Response.json({ error: `AI request failed: ${message}` }, { status: 502 });
+    const status = e instanceof LlmError ? e.status : 502;
+    return Response.json({ error: `AI request failed: ${message}` }, { status });
   }
 
-  // Models with extended thinking return a leading "thinking" block, so pull the
-  // first actual text block rather than assuming content[0].
-  const textBlock = response.content.find((b) => b.type === "text");
-  const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
+  const text = result.text;
 
-  let parsed;
+  let parsed: AtsAnalysis;
   try {
-    const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    parsed = JSON.parse(cleaned);
+    parsed = extractJson<AtsAnalysis>(text, "object");
   } catch {
     return Response.json({ error: "Failed to parse AI response", raw: text }, { status: 500 });
   }

@@ -156,9 +156,11 @@ export function computeRankScore(
 
   const penalties: { label: string; points: number }[] = [];
 
-  // Only an unjustified short week costs points; a justified one is recorded
-  // and surfaced but does not push the role down the list.
-  if (opts.hours && !opts.hours.meetsMin && !opts.hours.justified) {
+  // Penalise ONLY a confirmed short week with no justification. Unknown hours are
+  // flagged, never fined: absence of information in a posting is not evidence of
+  // a bad role, and a 12-point hit for "not stated" quietly buried every listing
+  // that omitted its schedule.
+  if (opts.hours && opts.hours.flag === "hours:under-min") {
     const pts = profile.penalties?.underMinHours ?? DEFAULT_PROFILE.penalties!.underMinHours!;
     if (pts > 0) penalties.push({ label: "under minimum weekly hours", points: pts });
   }

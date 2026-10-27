@@ -1,6 +1,6 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
-import Anthropic from "@anthropic-ai/sdk";
+import { chatComplete, extractJson } from "./llm";
 import type { JobInput } from "./analyzeJobs";
 
 const exec = promisify(execFile);
@@ -209,8 +209,6 @@ export function sourceFromUrl(url: string | null): string | null {
   return host.split(".")[0] || host;
 }
 
-const EXTRACTION_MODEL = "claude-haiku-4-5-20251001";
-
 function buildExtractionPrompt(content: string): string {
   return `You are given the raw text of a single job posting (scraped from a web page or pasted by a user). Extract the structured fields below and return ONLY a JSON object — no markdown, no commentary.
 
@@ -218,14 +216,16 @@ function buildExtractionPrompt(content: string): string {
   "role": string,               // the job title, e.g. "Senior Accountant". Empty string if genuinely absent.
   "company": string,            // hiring company/organization name. Empty string if absent.
   "location": string | null,    // city/state or "Remote"; null if not stated
-  "salaryMin": number | null,   // annual USD minimum if a salary is explicitly stated; convert hourly to annual (hourly*2080); null if not stated
-  "salaryMax": number | null,   // annual USD maximum if explicitly stated; null if not stated
+  "salaryMin": number | null,   // the pay figure as QUOTED, in the unit you report below; null if not stated
+  "salaryMax": number | null,   // the upper pay figure as quoted; null if not stated
+  "salaryInterval": string|null,// the unit of those figures: "hourly" | "daily" | "weekly" | "monthly" | "yearly" | "per_event". null if not stated
   "jobType": string | null,     // e.g. "Full-time", "Part-time", "Contract", "Internship"; null if not stated
   "description": string         // the core job description: responsibilities, requirements, qualifications, benefits. Clean it up but keep the substance. Cap around 1500 characters.
 }
 
 Rules:
-- Only put a salary number if the posting actually states pay. Do NOT invent or estimate here.
+- Only put a salary number if the posting actually states pay. Do NOT invent, estimate or annualise here — report the figure exactly as quoted together with its unit. "$60/hr" is salaryMin 60, salaryInterval "hourly"; "$500 per event" is 500 / "per_event".
+- If the posting quotes an annual range, report both ends with salaryInterval "yearly".
 - Strip navigation, cookie banners, "apply now", and other boilerplate from the description.
 - If the content is clearly NOT a job posting, set role and company to "" and put a short note in description.
 
@@ -234,24 +234,21 @@ ${content}`;
 }
 
 /**
- * Use Haiku to turn raw page/pasted text into a structured JobInput. Mirrors the
- * JSON-guard style of analyzeChunk() in analyzeJobs.ts.
+ * Turn raw page/pasted text into a structured JobInput.
+ *
+ * Provider/key/model come from the LLM layer (OpenRouter by default) — no API
+ * key is passed in and no model id is hardcoded here.
  */
-export async function extractJobInput(content: string, apiKey: string): Promise<JobInput> {
-  const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: EXTRACTION_MODEL,
-    max_tokens: 2048,
-    messages: [{ role: "user", content: buildExtractionPrompt(content.slice(0, MAX_TEXT_CHARS)) }],
+export async function extractJobInput(content: string): Promise<JobInput> {
+  const res = await chatComplete({
+    role: "extract",
+    user: buildExtractionPrompt(content.slice(0, MAX_TEXT_CHARS)),
+    maxTokens: 2048,
+    jsonObject: true,
+    timeoutMs: 90_000,
   });
 
-  const raw = response.content[0].type === "text" ? response.content[0].text : "";
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) {
-    throw new Error("extractJobInput: no JSON object in model response");
-  }
-
-  const parsed = JSON.parse(match[0]) as Partial<JobInput>;
+  const parsed = extractJson<Partial<JobInput> & { salaryInterval?: unknown }>(res.text, "object");
   const num = (v: unknown): number | null =>
     typeof v === "number" && isFinite(v) ? Math.round(v) : null;
   const str = (v: unknown): string | null =>
@@ -263,6 +260,8 @@ export async function extractJobInput(content: string, apiKey: string): Promise<
     location: str(parsed.location),
     salaryMin: num(parsed.salaryMin),
     salaryMax: num(parsed.salaryMax),
+    // The unit travels with the amount so it is never mistaken for an annual salary.
+    salaryInterval: str(parsed.salaryInterval),
     jobType: str(parsed.jobType),
     description: str(parsed.description),
   };

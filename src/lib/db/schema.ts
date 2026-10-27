@@ -131,6 +131,8 @@ export const jobAnalysis = sqliteTable("job_analysis", {
   hoursVerdict: text("hours_verdict"),
   /** JSON SoftFlag[] — advisory labels, never a filter. */
   flags: text("flags"),
+  /** JSON {label,points}[] — the deterministic score deductions and their reasons. */
+  penalties: text("penalties"),
   schedule: text("schedule"),       // JSON JobSchedule
   benefits: text("benefits"),       // JSON string[]
   notes: text("notes"),

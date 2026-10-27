@@ -102,6 +102,22 @@ check("penalty is reported, not hidden", penalised.penalties.length, 1);
 const excused = computeRankScore(perfect, DEFAULT_PROFILE, { hours: shortRemote });
 check("a justified short week costs nothing", excused.rankScore, 100);
 
+// Unknown hours must not be fined. A 12-point hit for "schedule not stated"
+// quietly buried every listing that omitted its hours — the live probe caught it.
+const unknownHours = evaluateHoursRule({ hoursPerWeek: null, jobType: "contract", isRemote: false });
+const unknownScored = computeRankScore(perfect, DEFAULT_PROFILE, { hours: unknownHours });
+check("unknown hours are flagged", unknownHours.flag, "hours:unknown");
+check("unknown hours are NOT penalised", unknownScored.rankScore, 100);
+check("unknown hours carry no penalty entry", unknownScored.penalties.length, 0);
+
+// Every common engagement type must be accepted by default, or the profile
+// rejects the market's most common listings without being asked to.
+check("full-time is accepted by default", DEFAULT_PROFILE.work.acceptFullTime, true);
+assert(
+  "the prompt lists full-time as an accepted engagement type",
+  /full-time \(W-2\)/.test(buildProfilePromptBlock(DEFAULT_PROFILE))
+);
+
 console.log("\n=== 4. No persona left in the prompt ===");
 const prompt = buildRankingPrompt(
   [

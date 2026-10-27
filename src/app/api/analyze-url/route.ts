@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSetting, getBLSWage } from "@/lib/db/queries";
+import { getSetting, getBLSWage, getTargetProfile } from "@/lib/db/queries";
 import { analyzeJobsBatch } from "@/lib/ai/analyzeJobs";
+import { hasLlmKey, llmKeyHint } from "@/lib/ai/llm";
 import { fetchJobPageText, extractJobInput, sourceFromUrl } from "@/lib/ai/extractJobFromUrl";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
@@ -30,12 +31,9 @@ async function POST_handler(request: NextRequest) {
     }
   }
 
-  const apiKey = getSetting("anthropic_api_key");
-  if (!apiKey) {
-    return Response.json(
-      { error: "Anthropic API key not configured. Go to Settings to add it." },
-      { status: 400, headers: rateLimit.headers }
-    );
+  // Provider/key/model come from the LLM layer — OpenRouter by default.
+  if (!hasLlmKey()) {
+    return Response.json({ error: llmKeyHint() }, { status: 400, headers: rateLimit.headers });
   }
 
   // Manual paste takes precedence; otherwise fetch the page. A blocked/thin fetch
@@ -63,7 +61,7 @@ async function POST_handler(request: NextRequest) {
 
   let jobInput;
   try {
-    jobInput = await extractJobInput(content!, apiKey);
+    jobInput = await extractJobInput(content!);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return Response.json({ error: `Could not extract job details: ${msg}` }, { status: 502, headers: rateLimit.headers });
@@ -81,7 +79,7 @@ async function POST_handler(request: NextRequest) {
 
   let analysis;
   try {
-    const [result] = await analyzeJobsBatch([jobInput], apiKey);
+    const [result] = await analyzeJobsBatch([jobInput], getTargetProfile());
     const blsWage = result?.socCode ? getBLSWage(result.socCode) : null;
     analysis = result ? { ...result, blsWage } : null;
   } catch (e) {

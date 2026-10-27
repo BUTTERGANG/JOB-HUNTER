@@ -177,7 +177,12 @@ export function validateSettingsUpdate(input: unknown): ValidationResult<Record<
     "masterResume", "schedule_searches", "schedule_sites", "schedule_results",
     "schedule_hours", "discord_notifications_enabled", "discord_webhook_url",
     "discord_min_score", "discord_max_jobs", "scrape_dedupe_enabled",
-    "scrape_proxies", "scrape_proxy_sessions", "anthropic_api_key",
+    "scrape_proxies", "scrape_proxy_sessions",
+    // LLM configuration. `llm_provider` picks OpenRouter (default) or Anthropic
+    // direct; the model per role is configurable so ranking can use a cheap model
+    // while resume tailoring uses a strong one.
+    "anthropic_api_key", "openrouter_api_key", "llm_provider",
+    "llm_model_ranker", "llm_model_tailor", "llm_model_extract", "llm_model_ats",
     // The editable target profile (JSON). Drives ranking weights, interests and
     // the weekly-hours rule — it replaced the hardcoded persona in the prompt.
     "target_profile"

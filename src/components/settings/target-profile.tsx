@@ -32,6 +32,7 @@ const WORK_TOGGLES: { key: keyof TargetProfile["work"]; label: string }[] = [
   { key: "acceptWeekends", label: "Weekends" },
   { key: "acceptEvenings", label: "Evenings" },
   { key: "acceptHolidays", label: "Holidays" },
+  { key: "acceptFullTime", label: "Full-time (W-2)" },
   { key: "acceptContract", label: "Contract" },
   { key: "acceptFreelance", label: "Freelance" },
   { key: "acceptPerEvent", label: "Per-event / gig" },

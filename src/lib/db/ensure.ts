@@ -38,6 +38,7 @@ export function ensureDb() {
   try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN pay_label TEXT"); } catch {}
   try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN hours_verdict TEXT"); } catch {}
   try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN flags TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN penalties TEXT"); } catch {}
   try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN description TEXT"); } catch {}
   // Pay unit + contract/gig signals. Added because the schema previously dropped
   // the pay interval, making an hourly rate indistinguishable from an annual one.

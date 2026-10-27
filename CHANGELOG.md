@@ -2,6 +2,50 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
+## 2026-10-27 — OpenRouter support (no Anthropic key required)
+
+Every AI feature now goes through one provider-agnostic layer instead of the Anthropic
+SDK called directly with model ids baked into the call sites (one of which,
+`claude-haiku-4-5-20251001`, is not a valid id anywhere).
+
+- **New `src/lib/ai/llm.ts`** — `chatComplete()` / `testLlm()`. Provider, key and a
+  per-role model (ranker / tailor / extract / ats) are resolved from settings, falling
+  back to the environment (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`). Defaults to
+  OpenRouter, supports Anthropic direct, and falls back to whichever provider actually
+  has a key rather than failing every feature.
+- **Verified model ids** against the live OpenRouter catalogue: ranking
+  `anthropic/claude-haiku-5.5` (~$0.10/$0.50 per M tokens), tailoring
+  `anthropic/claude-sonnet-5`. Both overridable in Settings.
+- **Settings → AI Provider** card: provider picker, key fields (never echoed back),
+  per-role model overrides with the effective value shown, and a **Send test request**
+  button that makes one real completion and reports model, latency and any error.
+  Replaces the old API Configuration card.
+- `scripts/import-openrouter-key.ts` copies the key already on this machine
+  (`~/.hermes/.env`) into the app's settings table, printing only a masked fingerprint.
+- HTTP failures are translated into actionable messages (401 bad key, 402 out of credit,
+  404 unknown model, 429 rate limited) instead of a generic 502.
+- `json_object` response mode is requested where supported and retried once without it,
+  since not every OpenRouter-backed model accepts it.
+
+Two ranking bugs surfaced by the first live run and fixed:
+
+- **Full-time was not an accepted engagement type.** The profile's engagement list
+  covered contract/freelance/per-event/temporary/part-time but not W-2 full-time, so
+  every full-time listing scored engagement ~2 and carried a "not in accepted types"
+  flag — the profile was rejecting the market's most common engagement type.
+  `work.acceptFullTime` added (default on).
+- **Unknown hours were penalised like a confirmed short week.** A listing that did not
+  state its schedule took the full under-minimum penalty, quietly burying most of the
+  market. The penalty now applies only to a confirmed `hours:under-min` verdict; unknown
+  hours are flagged and cost nothing. Score deductions are also persisted
+  (`job_analysis.penalties`) and shown, so a score can be explained.
+
+Live verification (`scripts/rank-probe.ts`) against the real listings for the target
+vertical, through OpenRouter, all five real on-target listings above both off-profile
+controls: Wedding Videographer 82, product-photo/e-comm 79, automotive photo/video 66,
+library videographer 63, seasonal photo 61 — Software Engineer control 58, Warehouse
+control 51.
+
 ## 2026-10-27 — Profile-driven ranking (replaces the hardcoded persona)
 
 The ranker carried a job-seeker persona inside its prompt (no degree / wants remote /

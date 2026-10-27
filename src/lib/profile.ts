@@ -36,6 +36,13 @@ export interface ProfileWork {
   acceptWeekends: boolean;
   acceptEvenings: boolean;
   acceptHolidays: boolean;
+  /**
+   * Employment types. `acceptFullTime` exists because its absence silently made
+   * every full-time W-2 role score engagement 2 and carry a "not in accepted
+   * types" flag — i.e. the profile was rejecting the most common engagement
+   * type in the market without anyone asking it to.
+   */
+  acceptFullTime: boolean;
   acceptContract: boolean;
   acceptFreelance: boolean;
   acceptPerEvent: boolean;
@@ -143,6 +150,7 @@ export const DEFAULT_PROFILE: TargetProfile = {
     acceptWeekends: true,
     acceptEvenings: true,
     acceptHolidays: false,
+    acceptFullTime: true,
     acceptContract: true,
     acceptFreelance: true,
     acceptPerEvent: true,
@@ -394,12 +402,15 @@ Willing to work: ${[
   ].filter(Boolean).join(", ") || "unspecified"}
 
 Engagement types accepted: ${[
+    profile.work.acceptFullTime && "full-time (W-2)",
     profile.work.acceptContract && "contract",
     profile.work.acceptFreelance && "freelance",
     profile.work.acceptPerEvent && "per-event",
     profile.work.acceptTemporary && "temporary",
     profile.work.acceptPartTime && "part-time",
   ].filter(Boolean).join(", ") || "unspecified"}
+If a listing is an engagement type OTHER than the ones listed here, still score it on its
+merits and note the mismatch in the flags array — do not treat it as a disqualification.
 
 Compensation:
 ${payLines.join("\n")}

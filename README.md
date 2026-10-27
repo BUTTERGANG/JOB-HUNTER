@@ -27,7 +27,7 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 - **Framework:** Next.js 16 (App Router)
 - **UI:** React, Tailwind CSS, shadcn/ui components
 - **Database:** SQLite (via `better-sqlite3`)
-- **AI:** Anthropic Claude API (`@anthropic-ai/sdk`)
+- **AI:** OpenRouter (default) or Anthropic direct, via one provider-agnostic layer (`src/lib/ai/llm.ts`)
 - **Scraping:** `python-jobspy` (Python subprocess)
 - **Tables:** `react-table` / shadcn Table
 - **Charts:** `recharts`
@@ -38,7 +38,7 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 
 - Node.js 18+
 - Python 3.10+ with `python-jobspy` installed (`pip install python-jobspy`)
-- An Anthropic API key
+- An LLM API key — OpenRouter (recommended) or Anthropic direct
 
 ## Getting Started
 
@@ -67,7 +67,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ### 4. Configure
 
 Go to **Settings** and add:
-1. Your **Anthropic API key**
+1. Your **AI provider key** (Settings → AI Provider; OpenRouter is the default)
 2. Your **Target Profile** (interests, market, willingness, weekly-hours minimum, per-axis weights) — see below
 3. Your **master resume** text
 4. **Salary targets** (minimum, target, stretch)
@@ -164,6 +164,7 @@ job-hunt-app/
 | `/api/jobs/[id]` | GET/PATCH/DELETE | Job CRUD |
 | `/api/jobs/[id]/analysis` | POST | Re-analyze a job |
 | `/api/ai/tailor` | POST | Generate a tailored resume (structured JSON) from the master resume + JD |
+| `/api/ai/test` | POST | Check the configured LLM provider/model with one tiny completion |
 | `/api/jobs/[id]/resume` | GET/PUT | Read / save the stored tailored resume for a job |
 | `/api/jobs/[id]/resume/docx` | GET | Download the tailored resume as a `.docx` file |
 | `/api/settings` | GET/PUT | Read/write settings |
@@ -323,6 +324,29 @@ SQLite stored at `data/jobhunt.db`. Main tables:
 - **`listing_status_history`** — Append-only log of every listing-availability check (job id, status, timestamp); `jobs.listing_status`/`listing_checked_at` hold only the latest snapshot
 
 The database is auto-created on first run. No migrations needed — the schema uses `CREATE TABLE IF NOT EXISTS`.
+
+## AI Provider
+
+All AI features — listing ranking, resume tailoring, posting extraction and ATS analysis —
+go through `src/lib/ai/llm.ts`. **Settings → AI Provider** configures:
+
+- **Provider** — OpenRouter (default) or Anthropic direct. If the chosen provider has no
+  key, the other is used automatically instead of failing every feature.
+- **Keys** — stored in the (gitignored) SQLite `settings` table and never returned by the
+  API. `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` in the environment also work, so a key
+  already on the machine needs no pasting.
+- **Model per role** — ranking, tailoring, extraction, ATS. Defaults: ranking
+  `anthropic/claude-haiku-5.5` (cheap, runs over the most tokens), tailoring
+  `anthropic/claude-sonnet-5`.
+- **Send test request** — one real completion to confirm the key and model work, reporting
+  the model, latency and any error.
+
+To reuse an OpenRouter key already on this machine without pasting it anywhere:
+
+```bash
+node_modules/.bin/tsx scripts/import-openrouter-key.ts          # reads $OPENROUTER_API_KEY or ~/.hermes/.env
+node_modules/.bin/tsx scripts/import-openrouter-key.ts --dry-run
+```
 
 ## Environment Variables
 

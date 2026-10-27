@@ -1,8 +1,9 @@
 import { db } from "@/lib/db/index";
 import { scrapeResults } from "@/lib/db/schema";
 import { sql, notInArray } from "drizzle-orm";
-import { getSetting, getTargetProfile, saveJobAnalyses, createAnalysisRun, updateAnalysisRun } from "@/lib/db/queries";
+import { getTargetProfile, saveJobAnalyses, createAnalysisRun, updateAnalysisRun } from "@/lib/db/queries";
 import { analyzeJobsBatch } from "@/lib/ai/analyzeJobs";
+import { hasLlmKey, llmKeyHint } from "@/lib/ai/llm";
 
 const BATCH_SIZE = 40;
 const BETWEEN_BATCH_MS = 500;
@@ -17,8 +18,9 @@ export function startAnalysisRun(): { runId: string; total: number } | { error: 
     return { error: `Analysis run already in progress: ${existing}` };
   }
 
-  const apiKey = getSetting("anthropic_api_key");
-  if (!apiKey) return { error: "Anthropic API key not configured in Settings." };
+  // Provider-agnostic: OpenRouter by default, since that key is already present
+  // on this machine. See src/lib/ai/llm.ts.
+  if (!hasLlmKey()) return { error: llmKeyHint() };
 
   const d = db();
   const [{ unanalyzed }] = d
@@ -34,7 +36,7 @@ export function startAnalysisRun(): { runId: string; total: number } | { error: 
   createAnalysisRun(runId, total);
   registry.set(runId, { cancelled: false });
 
-  void runAnalysis(runId, apiKey, total).catch((e) => {
+  void runAnalysis(runId, total).catch((e) => {
     updateAnalysisRun(runId, { status: "error" });
     registry.delete(runId);
     console.error("analysisRunner error:", e);
@@ -55,7 +57,7 @@ export function getActiveAnalysisRunId(): string | null {
   return ids.length > 0 ? ids[0] : null;
 }
 
-async function runAnalysis(runId: string, apiKey: string, total: number): Promise<void> {
+async function runAnalysis(runId: string, total: number): Promise<void> {
   const reg = registry.get(runId)!;
   const d = db();
   // The profile is read once per run: it carries the weights, the weekly-hours
@@ -123,7 +125,7 @@ async function runAnalysis(runId: string, apiKey: string, total: number): Promis
         experienceRange: r.experienceRange ?? null,
       }));
 
-      const analyses = await analyzeJobsBatch(jobs, apiKey, profile);
+      const analyses = await analyzeJobsBatch(jobs, profile);
       const ids = rows.map((r) => r.id);
       saveJobAnalyses(ids, analyses);
       analyzed += analyses.length;

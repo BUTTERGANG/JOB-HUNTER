@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getJobById, updateJob, getSetting } from "@/lib/db/queries";
+import { hasLlmKey, llmKeyHint } from "@/lib/ai/llm";
 import { fetchJobPageText, extractJobInput } from "@/lib/ai/extractJobFromUrl";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
@@ -30,12 +31,9 @@ async function POST_handler(
     );
   }
 
-  const apiKey = getSetting("anthropic_api_key");
-  if (!apiKey) {
-    return Response.json(
-      { error: "Anthropic API key not configured. Go to Settings to add it." },
-      { status: 400, headers: rateLimit.headers }
-    );
+  // Provider/key/model come from the LLM layer — OpenRouter by default.
+  if (!hasLlmKey()) {
+    return Response.json({ error: llmKeyHint() }, { status: 400, headers: rateLimit.headers });
   }
 
   const proxyRaw = getSetting("scrape_proxies");
@@ -56,7 +54,7 @@ async function POST_handler(
 
   let extracted;
   try {
-    extracted = await extractJobInput(fetched.text, apiKey);
+    extracted = await extractJobInput(fetched.text);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return Response.json({ error: `Could not extract the description: ${msg}` }, { status: 502, headers: rateLimit.headers });

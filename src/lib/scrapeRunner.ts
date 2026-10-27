@@ -4,10 +4,11 @@ import { writeFile, readFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import Papa from "papaparse";
-import { saveScrapeRun, saveJobAnalyses, getSetting, getBLSWage, getExistingScrapeIdentityKeys } from "@/lib/db/queries";
+import { saveScrapeRun, saveJobAnalyses, getSetting, getBLSWage, getExistingScrapeIdentityKeys, getTargetProfile } from "@/lib/db/queries";
 import type { BLSWageData } from "@/lib/db/queries";
 import { analyzeJobsBatch } from "@/lib/ai/analyzeJobs";
 import type { JobAnalysisResult } from "@/lib/ai/analyzeJobs";
+import { hasLlmKey } from "@/lib/ai/llm";
 import { getJobIdentityKey } from "@/lib/jobIdentity";
 
 const exec = promisify(execFile);
@@ -357,10 +358,10 @@ export async function runScrapeAndAnalyze(
 
   let analyses: JobAnalysisResult[] = [];
   if (!skipAnalysis) {
-    const apiKey = getSetting("anthropic_api_key");
-    if (apiKey && jobs.length > 0 && resultIds.length === jobs.length) {
+    // Provider/key/model come from the LLM layer (OpenRouter by default).
+    if (hasLlmKey() && jobs.length > 0 && resultIds.length === jobs.length) {
       try {
-        analyses = await analyzeJobsBatch(jobs, apiKey);
+        analyses = await analyzeJobsBatch(jobs, getTargetProfile());
         saveJobAnalyses(resultIds, analyses);
       } catch {
         // Non-fatal — return jobs without analysis

@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { TargetProfileEditor } from "@/components/settings/target-profile";
+import { LlmConfigCard } from "@/components/settings/llm-config";
 import { DEFAULT_PROFILE, parseTargetProfile, type TargetProfile } from "@/lib/profile";
 import {
   Select,
@@ -42,6 +43,14 @@ const HOURS_OPTIONS = [
 export default function SettingsPage() {
   const [settings, setSettings] = useState({
     anthropic_api_key: "",
+    // LLM provider configuration. The key is only sent when the field is touched;
+    // the API never returns a stored key.
+    openrouter_api_key: "",
+    llm_provider: "openrouter",
+    llm_model_ranker: "",
+    llm_model_tailor: "",
+    llm_model_extract: "",
+    llm_model_ats: "",
     user_name: "",
     target_salary_floor: "",
     target_salary_target: "",
@@ -57,10 +66,18 @@ export default function SettingsPage() {
   });
   const [hasApiKey, setHasApiKey] = useState(false);
   const [apiKeyTouched, setApiKeyTouched] = useState(false);
+  const [hasOpenRouterKey, setHasOpenRouterKey] = useState(false);
+  const [orKeyTouched, setOrKeyTouched] = useState(false);
+  const [llmStatus, setLlmStatus] = useState<{
+    provider: string;
+    keySource: string | null;
+    keyAvailable: boolean;
+    models: Record<string, string>;
+    defaults: Record<string, string>;
+  } | null>(null);
   const [hasProxies, setHasProxies] = useState(false);
   const [proxyCount, setProxyCount] = useState(0);
   const [proxiesTouched, setProxiesTouched] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [hasDiscordWebhook, setHasDiscordWebhook] = useState(false);
   const [discordWebhookTouched, setDiscordWebhookTouched] = useState(false);
   const [discordTesting, setDiscordTesting] = useState(false);
@@ -107,6 +124,8 @@ export default function SettingsPage() {
       })
       .then((data) => {
         setHasApiKey(!!data.hasApiKey);
+        setHasOpenRouterKey(!!data.hasOpenRouterKey);
+        if (data.llm) setLlmStatus(data.llm);
         setHasDiscordWebhook(!!data.hasDiscordWebhook);
         setHasProxies(!!data.hasProxies);
         setProxyCount(data.proxyCount ?? 0);
@@ -117,6 +136,13 @@ export default function SettingsPage() {
           ...prev,
           ...data,
           anthropic_api_key: "",
+          // Never pre-fill a stored key back into the form.
+          openrouter_api_key: "",
+          llm_provider: data.llm_provider || "openrouter",
+          llm_model_ranker: data.llm_model_ranker || "",
+          llm_model_tailor: data.llm_model_tailor || "",
+          llm_model_extract: data.llm_model_extract || "",
+          llm_model_ats: data.llm_model_ats || "",
           discord_webhook_url: "",
           scrape_proxies: "",
           discord_notifications_enabled: data.discord_notifications_enabled ?? "false",
@@ -170,10 +196,19 @@ export default function SettingsPage() {
       scrape_proxy_sessions: settings.scrape_proxy_sessions,
       // Sent as JSON; validated and deep-merged onto the defaults on the server.
       target_profile: JSON.stringify(targetProfile),
+      // LLM provider + per-role models always save; keys only when touched.
+      llm_provider: settings.llm_provider,
+      llm_model_ranker: settings.llm_model_ranker,
+      llm_model_tailor: settings.llm_model_tailor,
+      llm_model_extract: settings.llm_model_extract,
+      llm_model_ats: settings.llm_model_ats,
     };
 
     if (apiKeyTouched) {
       payload.anthropic_api_key = settings.anthropic_api_key;
+    }
+    if (orKeyTouched) {
+      payload.openrouter_api_key = settings.openrouter_api_key;
     }
     if (discordWebhookTouched) {
       payload.discord_webhook_url = settings.discord_webhook_url;
@@ -202,11 +237,27 @@ export default function SettingsPage() {
 
     setSaving(false);
     setSaved(true);
-    if (apiKeyTouched && settings.anthropic_api_key) {
-      setHasApiKey(true);
+    if (apiKeyTouched) {
+      // An emptied field means "remove the stored key", so mirror the value
+      // rather than assuming a key is now present.
+      setHasApiKey(!!settings.anthropic_api_key);
       setApiKeyTouched(false);
       setSettings((prev) => ({ ...prev, anthropic_api_key: "" }));
     }
+    if (orKeyTouched) {
+      setHasOpenRouterKey(!!settings.openrouter_api_key);
+      setOrKeyTouched(false);
+      setSettings((prev) => ({ ...prev, openrouter_api_key: "" }));
+    }
+    // Refresh the live LLM status so the "Active:" line reflects what was saved.
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((data) => {
+        setHasOpenRouterKey(!!data.hasOpenRouterKey);
+        setHasApiKey(!!data.hasApiKey);
+        if (data.llm) setLlmStatus(data.llm);
+      })
+      .catch(() => {});
     if (discordWebhookTouched && settings.discord_webhook_url) {
       setHasDiscordWebhook(true);
       setDiscordWebhookTouched(false);
@@ -356,53 +407,24 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-bold mb-6">Settings</h1>
 
       <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>API Configuration</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="apiKey">Anthropic API Key</Label>
-              <div className="relative mt-1">
-                <Input
-                  id="apiKey"
-                  type={showApiKey ? "text" : "password"}
-                  value={settings.anthropic_api_key}
-                  onChange={(e) => {
-                    updateField("anthropic_api_key", e.target.value);
-                    setApiKeyTouched(true);
-                  }}
-                  placeholder={hasApiKey ? "Key saved — enter new value to replace" : "sk-ant-..."}
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey((s) => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label={showApiKey ? "Hide key" : "Show key"}
-                >
-                  {showApiKey ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                      <line x1="1" y1="1" x2="23" y2="23"/>
-                    </svg>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                      <circle cx="12" cy="12" r="3"/>
-                    </svg>
-                  )}
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {hasApiKey
-                  ? "API key is saved. Leave blank to keep current key, or enter a new value to replace it."
-                  : "Required for AI ranking and analysis. Get one at console.anthropic.com."}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        <LlmConfigCard
+          value={{
+            llm_provider: settings.llm_provider,
+            openrouter_api_key: settings.openrouter_api_key,
+            anthropic_api_key: settings.anthropic_api_key,
+            llm_model_ranker: settings.llm_model_ranker,
+            llm_model_tailor: settings.llm_model_tailor,
+            llm_model_extract: settings.llm_model_extract,
+            llm_model_ats: settings.llm_model_ats,
+          }}
+          onChange={(patch) => setSettings((prev) => ({ ...prev, ...patch }))}
+          hasOpenRouterKey={hasOpenRouterKey}
+          hasAnthropicKey={hasApiKey}
+          orTouched={orKeyTouched}
+          anTouched={apiKeyTouched}
+          onTouch={(which) => (which === "openrouter" ? setOrKeyTouched(true) : setApiKeyTouched(true))}
+          status={llmStatus}
+        />
 
         <Card>
           <CardHeader>
