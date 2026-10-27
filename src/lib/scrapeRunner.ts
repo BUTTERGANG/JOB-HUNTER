@@ -30,8 +30,16 @@ export interface ScrapedJobWithAnalysis {
   description: string | null;
   salaryMin: number | null;
   salaryMax: number | null;
+  /** Pay unit — must travel with salaryMin/Max or the amount is unreadable. */
+  salaryInterval: string | null;
+  salarySource: string | null;
   datePosted: string | null;
   jobType: string | null;
+  isRemote: boolean | null;
+  jobLevel: string | null;
+  listingType: string | null;
+  companyIndustry: string | null;
+  experienceRange: string | null;
   analysis: (JobAnalysisResult & { blsWage: BLSWageData | null }) | null;
 }
 
@@ -39,6 +47,24 @@ function parseSalary(val: string | undefined): number | null {
   if (!val || val.trim() === "") return null;
   const n = Number(val);
   return isNaN(n) ? null : Math.round(n);
+}
+
+/** jobspy writes booleans into the CSV as True/False/1/0/"nan" — normalise. */
+function parseBool(val: string | undefined): boolean | null {
+  if (val == null) return null;
+  const s = String(val).trim().toLowerCase();
+  if (!s || s === "nan" || s === "none" || s === "null") return null;
+  if (["true", "1", "yes", "y"].includes(s)) return true;
+  if (["false", "0", "no", "n"].includes(s)) return false;
+  return null;
+}
+
+/** Empty-string-to-null helper for the optional signal columns. */
+function parseText(val: string | undefined): string | null {
+  if (val == null) return null;
+  const s = String(val).trim();
+  if (!s || s.toLowerCase() === "nan") return null;
+  return s;
 }
 
 export interface ScrapeDedupeResult {
@@ -249,8 +275,17 @@ export async function runScrapeAndAnalyze(
     description: row["Description"] || null,
     salaryMin: parseSalary(row["Salary Min"]),
     salaryMax: parseSalary(row["Salary Max"]),
+    // Kept alongside the amount: an hourly rate without its unit is read as an
+    // annual salary downstream and scores as sub-poverty pay.
+    salaryInterval: parseText(row["Salary Interval"]),
+    salarySource: parseText(row["Salary Source"]),
     datePosted: row["Date Posted"] || null,
     jobType: row["Job Type"] || null,
+    isRemote: parseBool(row["Is Remote"]),
+    jobLevel: parseText(row["Job Level"]),
+    listingType: parseText(row["Listing Type"]),
+    companyIndustry: parseText(row["Company Industry"]),
+    experienceRange: parseText(row["Experience Range"]),
   }));
 
   const dedupe: ScrapeDedupeResult = {
@@ -299,8 +334,15 @@ export async function runScrapeAndAnalyze(
         source: job.source,
         salaryMin: job.salaryMin,
         salaryMax: job.salaryMax,
+        salaryInterval: job.salaryInterval,
+        salarySource: job.salarySource,
         datePosted: job.datePosted,
         jobType: job.jobType,
+        isRemote: job.isRemote,
+        jobLevel: job.jobLevel,
+        listingType: job.listingType,
+        companyIndustry: job.companyIndustry,
+        experienceRange: job.experienceRange,
         description: job.description,
       }))
     );

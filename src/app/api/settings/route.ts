@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllSettings, setSetting } from "@/lib/db/queries";
+import { getAllSettings, setSetting, getTargetProfile, saveTargetProfile } from "@/lib/db/queries";
 import { getMasterResume, saveMasterResume } from "@/lib/db/queries";
 import { validateSettingsUpdate } from "@/lib/validation";
 import { settingsRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
@@ -42,6 +42,9 @@ async function GET(request: NextRequest) {
     hasProxies: proxyCount > 0,
     proxyCount,
     masterResume: masterResume?.content || "",
+    // Returned fully merged with defaults so the UI can edit every knob without
+    // having to know which fields this profile happens to be missing.
+    targetProfile: getTargetProfile(),
   }, { headers: rateLimit.headers });
 }
 
@@ -66,6 +69,9 @@ async function PUT(request: NextRequest) {
   for (const [key, value] of Object.entries(validation.data!)) {
     if (key === "masterResume") {
       saveMasterResume(value);
+    } else if (key === "target_profile") {
+      // Parsed onto the defaults, so a partial profile is always valid.
+      saveTargetProfile(value);
     } else {
       setSetting(key, value);
     }

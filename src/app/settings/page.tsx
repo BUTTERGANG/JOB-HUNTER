@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { TargetProfileEditor } from "@/components/settings/target-profile";
+import { DEFAULT_PROFILE, parseTargetProfile, type TargetProfile } from "@/lib/profile";
 import {
   Select,
   SelectContent,
@@ -69,6 +71,10 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // The target profile: the user-editable replacement for the persona that used
+  // to be hardcoded inside the ranking prompt.
+  const [targetProfile, setTargetProfile] = useState<TargetProfile>(DEFAULT_PROFILE);
+
   // BLS state
   const [blsStatus, setBlsStatus] = useState<{ count: number; year: number | null } | null>(null);
   const [blsStatusError, setBlsStatusError] = useState(false);
@@ -104,6 +110,9 @@ export default function SettingsPage() {
         setHasDiscordWebhook(!!data.hasDiscordWebhook);
         setHasProxies(!!data.hasProxies);
         setProxyCount(data.proxyCount ?? 0);
+        // Merged onto the defaults server-side; re-parsed here so a partial
+        // profile still yields a complete editable object.
+        if (data.targetProfile) setTargetProfile(parseTargetProfile(data.targetProfile));
         setSettings((prev) => ({
           ...prev,
           ...data,
@@ -159,6 +168,8 @@ export default function SettingsPage() {
       discord_max_jobs: settings.discord_max_jobs,
       scrape_dedupe_enabled: settings.scrape_dedupe_enabled,
       scrape_proxy_sessions: settings.scrape_proxy_sessions,
+      // Sent as JSON; validated and deep-merged onto the defaults on the server.
+      target_profile: JSON.stringify(targetProfile),
     };
 
     if (apiKeyTouched) {
@@ -409,6 +420,8 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        <TargetProfileEditor value={targetProfile} onChange={setTargetProfile} />
 
         <Card>
           <CardHeader>

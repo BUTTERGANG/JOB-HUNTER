@@ -135,7 +135,19 @@ def build_output(df: "pd.DataFrame") -> "pd.DataFrame":
             "Job URL": safe_col(df, "job_url"),
             "Salary Min": to_salary_int(safe_col(df, "min_amount")),
             "Salary Max": to_salary_int(safe_col(df, "max_amount")),
+            # The pay UNIT is not optional metadata: without it an hourly or
+            # per-event rate is indistinguishable from an annual salary and the
+            # ranker reads $60/hr as $60/year. Never drop this column.
+            "Salary Interval": safe_col(df, "interval"),
+            "Salary Source": safe_col(df, "salary_source"),
             "Job Type": safe_col(df, "job_type"),
+            # Signals that matter for contract/gig/creative work and that a
+            # W-2-shaped schema otherwise discards.
+            "Is Remote": safe_col(df, "is_remote"),
+            "Job Level": safe_col(df, "job_level"),
+            "Listing Type": safe_col(df, "listing_type"),
+            "Company Industry": safe_col(df, "company_industry"),
+            "Experience Range": safe_col(df, "experience_range"),
             "Description": desc_short,
         }
     )

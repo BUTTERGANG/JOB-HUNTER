@@ -177,7 +177,10 @@ export function validateSettingsUpdate(input: unknown): ValidationResult<Record<
     "masterResume", "schedule_searches", "schedule_sites", "schedule_results",
     "schedule_hours", "discord_notifications_enabled", "discord_webhook_url",
     "discord_min_score", "discord_max_jobs", "scrape_dedupe_enabled",
-    "scrape_proxies", "scrape_proxy_sessions", "anthropic_api_key"
+    "scrape_proxies", "scrape_proxy_sessions", "anthropic_api_key",
+    // The editable target profile (JSON). Drives ranking weights, interests and
+    // the weekly-hours rule — it replaced the hardcoded persona in the prompt.
+    "target_profile"
   ];
 
   const result: Record<string, string> = {};
@@ -185,9 +188,34 @@ export function validateSettingsUpdate(input: unknown): ValidationResult<Record<
     if (!allowedKeys.includes(key)) {
       return { ok: false, error: `Invalid setting key: ${key}` };
     }
-    if (val !== undefined && val !== null) {
-      result[key] = String(val);
+    if (val === undefined || val === null) continue;
+
+    // The target profile is a structured object, not a scalar. Accept either an
+    // object (from the settings UI) or a JSON string (from the raw editor) and
+    // store it as a JSON string; reject anything unparseable rather than
+    // silently persisting "[object Object]" and wiping the ranking config.
+    if (key === "target_profile") {
+      if (typeof val === "object") {
+        try {
+          result[key] = JSON.stringify(val);
+        } catch {
+          return { ok: false, error: "target_profile must be JSON-serialisable" };
+        }
+        continue;
+      }
+      const str = String(val).trim();
+      if (str && str !== "[object Object]") {
+        try {
+          JSON.parse(str);
+        } catch {
+          return { ok: false, error: "target_profile must be valid JSON" };
+        }
+        result[key] = str;
+      }
+      continue;
     }
+
+    result[key] = String(val);
   }
   return { ok: true, data: result };
 }

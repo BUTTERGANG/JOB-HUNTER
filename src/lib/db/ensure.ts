@@ -31,7 +31,23 @@ export function ensureDb() {
   try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN adjusted_salary_min INTEGER"); } catch {}
   try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN adjusted_salary_max INTEGER"); } catch {}
   try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN col_index INTEGER"); } catch {}
+  // Axes and facts added with the profile-driven ranker.
+  try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN score_interest INTEGER"); } catch {}
+  try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN score_engagement INTEGER"); } catch {}
+  try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN pay_interval TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN pay_label TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN hours_verdict TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE job_analysis ADD COLUMN flags TEXT"); } catch {}
   try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN description TEXT"); } catch {}
+  // Pay unit + contract/gig signals. Added because the schema previously dropped
+  // the pay interval, making an hourly rate indistinguishable from an annual one.
+  try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN salary_interval TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN salary_source TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN is_remote INTEGER"); } catch {}
+  try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN job_level TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN listing_type TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN company_industry TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN experience_range TEXT"); } catch {}
   try { sqlite.exec("ALTER TABLE jobs ADD COLUMN listing_status TEXT DEFAULT 'unknown'"); } catch {}
   try { sqlite.exec("ALTER TABLE jobs ADD COLUMN listing_checked_at TEXT"); } catch {}
   // Create indexes (idempotent)

@@ -5,6 +5,7 @@ import type { NewJob, ScrapeResult, BulkRunRow, AnalysisRunRow, GovScrapeResult 
 import type { JobAnalysisResult } from "../ai/analyzeJobs";
 import { ensureDb } from "./ensure";
 import { getJobIdentityKey, type JobIdentityInput } from "../jobIdentity";
+import { parseTargetProfile, PROFILE_SETTING_KEY, type TargetProfile } from "../profile";
 
 export interface BLSWageData {
   occTitle: string;
@@ -261,6 +262,22 @@ export function setSetting(key: string, value: string) {
     .run();
 }
 
+/**
+ * Load the editable target profile from settings.
+ *
+ * A partial, missing or malformed profile never throws — it deep-merges onto
+ * the defaults, so the ranker always has a complete profile to work from.
+ */
+export function getTargetProfile(): TargetProfile {
+  return parseTargetProfile(getSetting(PROFILE_SETTING_KEY));
+}
+
+export function saveTargetProfile(profile: unknown): TargetProfile {
+  const parsed = parseTargetProfile(profile);
+  setSetting(PROFILE_SETTING_KEY, JSON.stringify(parsed));
+  return parsed;
+}
+
 export function getAllSettings() {
   const d = getDb();
   const rows = d.select().from(settings).all();
@@ -383,6 +400,12 @@ export function saveJobAnalyses(
         scoreHours: a.scoreHours,
         scoreRequirements: a.scoreRequirements,
         scoreLocation: a.scoreLocation,
+        scoreInterest: a.scoreInterest ?? null,
+        scoreEngagement: a.scoreEngagement ?? null,
+        payInterval: a.payInterval ?? null,
+        payLabel: a.payLabel ?? null,
+        hoursVerdict: a.hoursVerdict ? JSON.stringify(a.hoursVerdict) : null,
+        flags: a.flags ? JSON.stringify(a.flags) : null,
         schedule: JSON.stringify(a.schedule),
         benefits: JSON.stringify(a.benefits),
         notes: a.notes,
@@ -451,6 +474,12 @@ export function getScrapeResultsByRunId(runId: number) {
         scoreResponsibilities: a.scoreResponsibilities,
         scoreHours: a.scoreHours,
         scoreRequirements: a.scoreRequirements,
+        scoreInterest: a.scoreInterest ?? null,
+        scoreEngagement: a.scoreEngagement ?? null,
+        payInterval: a.payInterval ?? null,
+        payLabel: a.payLabel ?? null,
+        hoursVerdict: a.hoursVerdict ? JSON.parse(a.hoursVerdict) : null,
+        flags: a.flags ? JSON.parse(a.flags) : [],
         schedule: a.schedule ? JSON.parse(a.schedule) : null,
         benefits: a.benefits ? JSON.parse(a.benefits) : [],
         notes: a.notes ?? "",

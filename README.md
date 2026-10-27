@@ -7,7 +7,9 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 - **Multi-board scraping** — LinkedIn, Indeed, Glassdoor, ZipRecruiter, Google via `python-jobspy`
 - **All-states Bulk Market Scan** — Sweep all 50 states + DC with per-site result caps, automatic retry/backoff, and a live ETA
 - **Residential proxy support** — Route scrapes through rotating proxies (e.g. DataImpulse) to avoid single-IP rate limiting; per-site status (`ok` / `blocked` / counts) surfaced in the UI
-- **AI ranking** — Each job is scored across pay, flexibility, location, requirements, hours, and workload using Anthropic Claude
+- **AI ranking from your target profile** — Each job is scored by Anthropic Claude across pay, interest, responsibility, hours, flexibility, location, accessibility and engagement type. Every weight, interest and rule lives in an editable **Target Profile**, not in the prompt
+- **Unit-aware pay** — Hourly, daily, per-event and annual rates are kept distinct end to end; an hourly rate is never read as an annual salary
+- **Weekly-hours rule** — A week below your minimum (default 20h) is excused when the role is remote or self-scheduled, and penalised otherwise; either way the listing is ranked and shown
 - **BLS wage benchmarks** — National OEWS wage data (by SOC occupation code) from the Bureau of Labor Statistics for salary comparison
 - **Job tracking pipeline** — Import scraped jobs into a tracker with status, tier, notes, and resume tailoring
 - **Scheduled scraping** — Configure recurring scrapes that run automatically
@@ -66,10 +68,54 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Go to **Settings** and add:
 1. Your **Anthropic API key**
-2. Your **master resume** text
-3. **Salary targets** (minimum, target, stretch)
-4. **Scheduled scrape** searches, sites, and frequency
-5. (Optional) **Scrape proxies** + session-pool size — strongly recommended before running the all-states Bulk Market Scan (see below)
+2. Your **Target Profile** (interests, market, willingness, weekly-hours minimum, per-axis weights) — see below
+3. Your **master resume** text
+4. **Salary targets** (minimum, target, stretch)
+5. **Scheduled scrape** searches, sites, and frequency
+6. (Optional) **Scrape proxies** + session-pool size — strongly recommended before running the all-states Bulk Market Scan (see below)
+
+## Target Profile
+
+**Settings → Target Profile** is the single place that describes what a good job looks
+like. It replaced the job-seeker persona that used to be hardcoded inside the ranking
+prompt, so nothing about the seeker lives in source code.
+
+The profile holds:
+
+- **Interests** — the relevance signal (matched against titles, companies and descriptions)
+- **Industries** — leave blank for "not picky"
+- **Weekly hours** — your minimum (default 20h). A shorter week is excused when the role is
+  remote or genuinely self-scheduled, and penalised otherwise
+- **Compensation** — optional hourly/annual floor, target and stretch. Left blank, rates are
+  scored against what the work pays in the market instead of pass/fail
+- **Work you will take** — on-site, remote, hybrid, weekends, evenings, holidays, contract,
+  freelance, per-event, temporary, part-time
+- **Market** — city, state, cost-of-living index, commute tolerance, out-of-state scope
+- **About you** — degree (or unset), experience, gear you own, certifications, portfolio
+- **What matters most** — per-axis weights. Shown with their normalised effective value; the
+  total always scales to 0–100 regardless of what the raw numbers add up to
+- **Widen the search** — on by default: roles outside your stated interests are still scored
+  and shown when their pay, responsibility or growth looks good
+- **Extra instructions** — free text passed to the ranker verbatim
+
+Stored as JSON under the `target_profile` setting, so the raw form is editable too. A partial
+or malformed profile deep-merges onto the defaults and never breaks ranking.
+
+**Nothing in the profile is a filter.** Listings that miss a preference stay in the list and
+are flagged (`under minimum weekly hours`, `outside stated interests`, `requires own camera`, …).
+
+### How ranking works
+
+The model returns per-axis scores (0–10) plus structured facts; the app computes the weighted
+total, the weekly-hours verdict and any penalty in code (`src/lib/match.ts`). That means an axis
+can't be scored and then silently dropped from the total, and reweighting is a config change
+rather than a prompt rewrite.
+
+Verify the whole ranking layer offline, no API key needed:
+
+```bash
+node_modules/.bin/tsx scripts/verify-ranking.ts
+```
 
 ## Project Structure
 

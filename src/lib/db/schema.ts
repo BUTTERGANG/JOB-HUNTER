@@ -92,8 +92,16 @@ export const scrapeResults = sqliteTable("scrape_results", {
   source: text("source"),
   salaryMin: integer("salary_min"),
   salaryMax: integer("salary_max"),
+  /** Pay unit ("hourly" / "yearly" / "per_event" ...). Required to read the amount correctly. */
+  salaryInterval: text("salary_interval"),
+  salarySource: text("salary_source"),
   datePosted: text("date_posted"),
   jobType: text("job_type"),
+  isRemote: integer("is_remote", { mode: "boolean" }),
+  jobLevel: text("job_level"),
+  listingType: text("listing_type"),
+  companyIndustry: text("company_industry"),
+  experienceRange: text("experience_range"),
   description: text("description"),
   createdAt: text("created_at")
     .default(sql`(datetime('now'))`)
@@ -112,6 +120,17 @@ export const jobAnalysis = sqliteTable("job_analysis", {
   scoreHours: integer("score_hours").notNull(),
   scoreRequirements: integer("score_requirements").notNull(),
   scoreLocation: integer("score_location"),
+  /** Relevance axis: how well the work matches the profile's stated interests. */
+  scoreInterest: integer("score_interest"),
+  /** Engagement-type axis: W-2 / contract / per-event / part-time fit. */
+  scoreEngagement: integer("score_engagement"),
+  /** Pay unit and its unit-bearing label, so the amount can never be misread. */
+  payInterval: text("pay_interval"),
+  payLabel: text("pay_label"),
+  /** JSON HoursVerdict — the deterministic weekly-hours rule result. */
+  hoursVerdict: text("hours_verdict"),
+  /** JSON SoftFlag[] — advisory labels, never a filter. */
+  flags: text("flags"),
   schedule: text("schedule"),       // JSON JobSchedule
   benefits: text("benefits"),       // JSON string[]
   notes: text("notes"),

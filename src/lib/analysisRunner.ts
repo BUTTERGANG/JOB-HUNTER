@@ -1,7 +1,7 @@
 import { db } from "@/lib/db/index";
 import { scrapeResults } from "@/lib/db/schema";
 import { sql, notInArray } from "drizzle-orm";
-import { getSetting, saveJobAnalyses, createAnalysisRun, updateAnalysisRun } from "@/lib/db/queries";
+import { getSetting, getTargetProfile, saveJobAnalyses, createAnalysisRun, updateAnalysisRun } from "@/lib/db/queries";
 import { analyzeJobsBatch } from "@/lib/ai/analyzeJobs";
 
 const BATCH_SIZE = 40;
@@ -58,6 +58,9 @@ export function getActiveAnalysisRunId(): string | null {
 async function runAnalysis(runId: string, apiKey: string, total: number): Promise<void> {
   const reg = registry.get(runId)!;
   const d = db();
+  // The profile is read once per run: it carries the weights, the weekly-hours
+  // rule and the interests that the whole ranking depends on.
+  const profile = getTargetProfile();
   let analyzed = 0;
   let errors = 0;
   // IDs whose batch threw this run. We skip them for the rest of this run so
@@ -82,7 +85,16 @@ async function runAnalysis(runId: string, apiKey: string, total: number): Promis
         location: scrapeResults.location,
         salaryMin: scrapeResults.salaryMin,
         salaryMax: scrapeResults.salaryMax,
+        // The pay UNIT travels with the amount — without it an hourly rate is
+        // read as an annual salary and scores as sub-poverty pay.
+        salaryInterval: scrapeResults.salaryInterval,
         jobType: scrapeResults.jobType,
+        description: scrapeResults.description,
+        isRemote: scrapeResults.isRemote,
+        jobLevel: scrapeResults.jobLevel,
+        listingType: scrapeResults.listingType,
+        companyIndustry: scrapeResults.companyIndustry,
+        experienceRange: scrapeResults.experienceRange,
       })
       .from(scrapeResults)
       .where(whereClause)
@@ -92,19 +104,26 @@ async function runAnalysis(runId: string, apiKey: string, total: number): Promis
     if (rows.length === 0) break;
 
     try {
-      // scrape_results has no description column — bulk runs skip description fetching.
-      // Analysis is based on title, company, location, salary, and job type only.
+      // Descriptions ARE stored on scrape_results (see ddl.ts / ensure.ts) and ARE
+      // fed to the ranker. They were previously stubbed to null here, which left
+      // mass ranking scoring titles and salaries alone.
       const jobs = rows.map((r) => ({
         role: r.role,
         company: r.company,
         location: r.location ?? null,
         salaryMin: r.salaryMin ?? null,
         salaryMax: r.salaryMax ?? null,
+        salaryInterval: r.salaryInterval ?? null,
         jobType: r.jobType ?? null,
-        description: null,
+        description: r.description ?? null,
+        isRemote: r.isRemote ?? null,
+        jobLevel: r.jobLevel ?? null,
+        listingType: r.listingType ?? null,
+        companyIndustry: r.companyIndustry ?? null,
+        experienceRange: r.experienceRange ?? null,
       }));
 
-      const analyses = await analyzeJobsBatch(jobs, apiKey);
+      const analyses = await analyzeJobsBatch(jobs, apiKey, profile);
       const ids = rows.map((r) => r.id);
       saveJobAnalyses(ids, analyses);
       analyzed += analyses.length;
