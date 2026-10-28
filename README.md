@@ -216,6 +216,54 @@ job-hunt-app/
 | `/api/jobs/[id]/check-listing` | POST | Recheck one job's original posting for availability, log the result to history |
 | `/api/jobs/check-listings` | POST | Recheck every tracked job with a URL (all-time, not just recent scrapes) |
 
+## Running it as a service on a home server (Tailscale)
+
+The dashboard runs as a LaunchAgent on the Mac mini and is reached over the tailnet from
+any of your other devices — no VNC needed for the page itself:
+
+```
+http://alexs-mac-mini:3002        # MagicDNS, from any tailnet device
+http://100.118.244.119:3002       # the same thing by address
+```
+
+```bash
+launchctl print   gui/$(id -u)/ai.buttergang.job-hunter   # status
+launchctl kickstart -k gui/$(id -u)/ai.buttergang.job-hunter   # restart
+launchctl bootout gui/$(id -u)/ai.buttergang.job-hunter   # stop (KeepAlive won't fight you)
+tail -f ~/Library/Logs/job-hunter.log                    # logs
+```
+
+Agent: `~/Library/LaunchAgents/ai.buttergang.job-hunter.plist`, running
+`scripts/serve-tailnet.mjs` (production; `SERVE_MODE=dev` in the plist's environment for
+hot reload). `RunAtLoad` + `KeepAlive` mean it starts at login and restarts if it dies.
+
+**It binds to the Tailscale address, not `0.0.0.0`.** The macOS firewall is off on this
+machine, so `0.0.0.0` would put an app with no authentication on 25 of 27 routes in front
+of every device on the local network. The tailnet is the access-control layer instead.
+Consequence: `http://localhost:3002` does **not** answer on the mini — use either address
+above, which work from the mini too. Set `BIND_HOST=0.0.0.0` if you ever want every
+interface, and enable the firewall if you do.
+
+### Three things that will bite you
+
+1. **A launchd job cannot read an external SSD without a grant — and `/bin/bash` will
+   never get one.** macOS TCC refuses a removable volume to a "platform binary" and does
+   not even prompt for one, so a bash script on `/Volumes/...` dies at spawn with
+   `Operation not permitted`. Running **node directly** (`serve-tailnet.mjs`) is what makes
+   this work: node is not a platform binary and is eligible for the grant. Keep the
+   program's interpreter out of `bash`.
+2. **`StandardOutPath` must not be on the external volume.** launchd creates those files
+   itself before running the program; on the SSD the job dies at setup with `EX_CONFIG 78`
+   and produces no output at all — which looks like "the job does nothing". Logs go to
+   `~/Library/Logs/`.
+3. **The Tailscale CLI is unusable from a launchd agent.** It tries to launch the GUI app
+   and prints its failure *to stdout*: `"The Tailscale GUI failed to start: ..."`. Taken at
+   face value that becomes a hostname and `next start` dies with `ENOTFOUND`. Resolve the
+   tailnet address with `ifconfig` and validate that it is a `100.64.0.0/10` address.
+
+Also: the service needs the SSD mounted. If it is ejected, `data/` (the database, and every
+setting including the API key) is gone and the app will start with an empty config.
+
 ## Searching: how to get listings out of Indeed
 
 The search itself was the biggest constraint on the pipeline — the app shipped the most

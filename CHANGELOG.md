@@ -2,6 +2,29 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
+## 2026-10-27 — Runs as a LaunchAgent on the mini, reachable over Tailscale
+
+`http://alexs-mac-mini:3002` from any tailnet device. Agent
+`ai.buttergang.job-hunter` runs `scripts/serve-tailnet.mjs`, `RunAtLoad` + `KeepAlive`
+(verified by SIGKILL: launchd restarted it and it served again).
+
+Bound to the **Tailscale address, not 0.0.0.0** — the macOS firewall is off on this
+machine, so binding everything would expose an app with no auth on 25 of 27 routes to the
+whole LAN. `localhost:3002` consequently does not answer on the mini.
+
+Three gotchas found the hard way, all documented in the README:
+- A launchd job cannot read the external SSD with `/bin/bash`: TCC refuses a removable
+  volume to a "platform binary" and will not even prompt, so the script died at spawn with
+  `Operation not permitted`. Exec'ing **node directly** works.
+- `StandardOutPath` on the external volume kills the job at setup with `EX_CONFIG 78` and
+  no output whatsoever.
+- The Tailscale CLI does not work from a launchd agent: it prints "The Tailscale GUI failed
+  to start" *to stdout*, which naively becomes a hostname (`ENOTFOUND`). Resolve the
+  address via `ifconfig` and validate it against 100.64.0.0/10.
+
+Also found: the `ai.buttergang.gas-daily` agent is **not loaded**, so it has never run and
+its log does not exist.
+
 ## 2026-10-27 — Search yield: 3 listings → 225, and two features that never worked
 
 The pipeline was finding almost nothing. The cause was the search, not the scraper: every one
