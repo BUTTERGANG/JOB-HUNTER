@@ -7,6 +7,8 @@ export interface BulkScanConfig {
   sites: string[];
   resultsBySite: Record<string, number>;
   hours: number;
+  /** Search radius in miles, applied to every per-state call (Indeed only). */
+  distance?: number;
   term: string;
   broadSearch: boolean;
   concurrency: number;
@@ -102,6 +104,7 @@ async function runBulkScanServer(runId: string, config: BulkScanConfig): Promise
             results: resultsFallback,
             hours: config.hours,
             resultsBySite: config.resultsBySite,
+            distance: config.distance,
           },
           { timeoutMs: PER_STATE_TIMEOUT_MS, skipAnalysis: true, skipDedupe: true }
         );

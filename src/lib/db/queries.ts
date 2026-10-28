@@ -349,7 +349,13 @@ export function getExistingScrapeIdentityKeys(): Set<string> {
 }
 
 export function saveScrapeRun(
-  config: { searches: { term: string; location: string }[]; sites: string[]; results: number; hours: number },
+  config: {
+    searches: { term: string; location: string }[];
+    sites: string[];
+    results: number;
+    hours: number;
+    distance?: number;
+  },
   results: Omit<ScrapeResult, "id" | "scrapeRunId" | "createdAt">[]
 ): { run: typeof scrapeRuns.$inferSelect; resultIds: number[] } {
   const d = getDb();
@@ -362,6 +368,7 @@ export function saveScrapeRun(
       sites: JSON.stringify(config.sites),
       resultsPerSite: config.results,
       hours: config.hours,
+      distance: config.distance ?? null,
       totalFound: results.length,
       metrics: JSON.stringify(metrics),
     })

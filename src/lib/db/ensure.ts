@@ -49,6 +49,9 @@ export function ensureDb() {
   try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN listing_type TEXT"); } catch {}
   try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN company_industry TEXT"); } catch {}
   try { sqlite.exec("ALTER TABLE scrape_results ADD COLUMN experience_range TEXT"); } catch {}
+  // The search radius is part of a run's configuration — without it a past run
+  // cannot be reproduced, and yield differences look like noise.
+  try { sqlite.exec("ALTER TABLE scrape_runs ADD COLUMN distance INTEGER"); } catch {}
   try { sqlite.exec("ALTER TABLE jobs ADD COLUMN listing_status TEXT DEFAULT 'unknown'"); } catch {}
   try { sqlite.exec("ALTER TABLE jobs ADD COLUMN listing_checked_at TEXT"); } catch {}
   // Create indexes (idempotent)

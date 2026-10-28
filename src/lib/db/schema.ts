@@ -73,6 +73,8 @@ export const scrapeRuns = sqliteTable("scrape_runs", {
   sites: text("sites").notNull(),
   resultsPerSite: integer("results_per_site"),
   hours: integer("hours"),
+  /** Search radius in miles used for this run (Indeed only). */
+  distance: integer("distance"),
   totalFound: integer("total_found").notNull(),
   metrics: text("metrics"),
   createdAt: text("created_at")

@@ -61,6 +61,7 @@ export const SCHEMA_SQL = `
     sites TEXT NOT NULL,
     results_per_site INTEGER,
     hours INTEGER,
+    distance INTEGER,
     total_found INTEGER NOT NULL,
     metrics TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))

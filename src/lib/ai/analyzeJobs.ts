@@ -91,7 +91,19 @@ export interface JobInput {
   experienceRange?: string | null;
 }
 
-const CHUNK_SIZE = 40;
+/**
+ * Listings per ranking request.
+ *
+ * Each scored listing costs the model ~400 output tokens (axes, schedule,
+ * requirements, flags, notes, salary estimates), so 40 listings needs ~16k output
+ * tokens — which is exactly the ceiling that used to be requested. Every chunk
+ * truncated, and a 228-listing run scored 0. 20 keeps a chunk near half the budget.
+ */
+const CHUNK_SIZE = 20;
+
+/** How deep to keep halving a chunk that the model cannot answer in one go. */
+const MAX_SPLIT_DEPTH = 4;
+
 const DESCRIPTION_CHARS = 2000;
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -366,16 +378,31 @@ export function normalizeResult(
   };
 }
 
-async function analyzeChunk(
+/**
+ * Is this failure a "the chunk was too big for one response" problem?
+ *
+ * Provider problems (bad key, no credit, rate limit, unknown model) must propagate —
+ * splitting the chunk would just fail twice as often.
+ */
+function isChunkSizeProblem(e: unknown): boolean {
+  if (!(e instanceof LlmError)) return false;
+  if ([400, 401, 402, 403, 404, 429].includes(e.status)) return false;
+  return /token ceiling|expected \d+ scored listings|did not return a JSON array|Could not parse/i.test(
+    e.message
+  );
+}
+
+async function analyzeChunkOnce(
   jobs: JobInput[],
   profile: TargetProfile
 ): Promise<JobAnalysisResult[]> {
   const res = await chatComplete({
     role: "ranker",
     user: buildPrompt(jobs, profile),
-    // A full chunk of scored listings (axes + facts + an annualised salary
-    // estimate each) needs real headroom; the old 12000 ceiling truncated runs.
-    maxTokens: 16000,
+    // The model allows 128k output tokens; 32k is generous headroom for a chunk of
+    // 20 without inviting a runaway response. The previous 16k ceiling was ours,
+    // not the provider's, and it silently failed entire runs.
+    maxTokens: 32000,
     jsonObject: true,
   });
 
@@ -398,24 +425,69 @@ async function analyzeChunk(
 }
 
 /**
+ * Rank a chunk, halving and retrying if the model cannot answer it in one response.
+ *
+ * Truncation is a size problem, not a fatal one: a chunk that is too large for the
+ * output budget still works when split. Without this, one oversized chunk loses the
+ * whole run (228 listings scored 0 before this existed).
+ */
+async function analyzeChunk(
+  jobs: JobInput[],
+  profile: TargetProfile,
+  depth = 0
+): Promise<JobAnalysisResult[]> {
+  try {
+    return await analyzeChunkOnce(jobs, profile);
+  } catch (e) {
+    if (jobs.length <= 1 || depth >= MAX_SPLIT_DEPTH || !isChunkSizeProblem(e)) throw e;
+    const mid = Math.ceil(jobs.length / 2);
+    const [first, second] = await Promise.all([
+      analyzeChunk(jobs.slice(0, mid), profile, depth + 1),
+      analyzeChunk(jobs.slice(mid), profile, depth + 1),
+    ]);
+    return [...first, ...second];
+  }
+}
+
+/**
  * Rank a batch of listings.
  *
  * The provider, key and model come from `@/lib/ai/llm` (OpenRouter by default);
  * callers no longer pass an API key around, and no model id is hardcoded here.
  */
+/**
+ * How many chunks to rank at once.
+ *
+ * Each chunk's response is ~8k output tokens and the provider streams them at a fixed
+ * rate, so chunk count is the whole runtime: 228 listings sequentially took ~15
+ * minutes. Three at a time brings that to ~5 without stressing the provider or the
+ * per-endpoint rate limit.
+ */
+const CHUNK_CONCURRENCY = 3;
+
 export async function analyzeJobsBatch(
   jobs: JobInput[],
-  profile: TargetProfile = DEFAULT_PROFILE
+  profile: TargetProfile = DEFAULT_PROFILE,
+  opts: { concurrency?: number } = {}
 ): Promise<JobAnalysisResult[]> {
   const chunks = chunkArray(jobs, CHUNK_SIZE);
-  const allResults: JobAnalysisResult[] = [];
+  const concurrency = Math.max(1, Math.min(opts.concurrency ?? CHUNK_CONCURRENCY, chunks.length));
 
-  for (const chunk of chunks) {
-    const results = await analyzeChunk(chunk, profile);
-    allResults.push(...results);
+  // Index-assigned so the output stays in the same order as the input regardless of
+  // which worker finishes first — the caller pairs results back to listings by index.
+  const results: JobAnalysisResult[][] = new Array(chunks.length);
+  let next = 0;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const index = next++;
+      if (index >= chunks.length) return;
+      results[index] = await analyzeChunk(chunks[index], profile);
+    }
   }
 
-  return allResults;
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return results.flat();
 }
 
 /** Exposed for tests and tooling. */

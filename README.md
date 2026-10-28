@@ -216,6 +216,38 @@ job-hunt-app/
 | `/api/jobs/[id]/check-listing` | POST | Recheck one job's original posting for availability, log the result to history |
 | `/api/jobs/check-listings` | POST | Recheck every tracked job with a URL (all-time, not just recent scrapes) |
 
+## Searching: how to get listings out of Indeed
+
+The search itself was the biggest constraint on the pipeline — the app shipped the most
+restrictive setting on all four levers, and got **3 listings** for this market. Measured on
+Indeed, Indianapolis, by unique listings:
+
+| lever | restrictive | permissive | effect |
+|---|---|---|---|
+| **Term** | `photographer` → 3 | `photo` → 53 | **~17x** |
+| **Distance** | 50 mi → 51 | 100 mi → 89 | **+70%** |
+| **Window** | 7 days → 51 | 30 days → 100 | **~2x** |
+| **Result cap** | 25 | 200 (the pool goes deeper) | **8x** |
+
+Together: **3 unique listings → 225**, in 2.7 seconds.
+
+### Two rules that matter more than anything else here
+
+1. **Use short stems, not job titles.** Indeed ANDs every word, so `"wedding photographer"`
+   returns **0** while `"photo"` returns hundreds. The same trap in reverse: `"photographer"`
+   (3) is far narrower than `"photo"` (53). `"dj"`, `"wedding dj"` and `"event photographer"`
+   all return **zero** — not because the search is wrong, but because that work is not posted
+   on Indeed at all.
+2. **Search broad, then rank.** Broad terms bring ~17% on-target titles plus noise. That is the
+   design: the ranker's interest axis sorts them, and it costs about 3 cents to score 225
+   listings. Narrowing the search instead of the ranking throws away the good listings with the
+   bad ones.
+
+The Scrape page ships presets built from these measurements (Photo/video, Events/weddings,
+Creative/studio, Software), defaulting to `photo` + `event staff` at 100 mi / 30 days / 100 per
+site. **Distance** is now a real control (it was silently fixed at 50) and every run records the
+radius it used, so a past run can be reproduced.
+
 ## Verifying the pipeline
 
 Three scripts, in increasing order of what they need:

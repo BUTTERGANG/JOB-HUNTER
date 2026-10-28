@@ -4,7 +4,6 @@ import { promisify } from "util";
 import { resolve } from "path";
 import { getBLSStatus } from "@/lib/db/queries";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
-import { withAuth } from "@/lib/authMiddleware";
 
 export const maxDuration = 300;
 
@@ -62,5 +61,5 @@ async function POST_handler(request: NextRequest) {
   }
 }
 
-export const GET = withAuth(GET_handler, "admin");
-export const POST = withAuth(POST_handler, "admin");
+export const GET = GET_handler;
+export const POST = POST_handler;

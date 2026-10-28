@@ -60,6 +60,7 @@ async function POST_handler(request: NextRequest) {
     sites: validatedConfig.data.sites,
     resultsBySite: validatedConfig.data.resultsBySite,
     hours: validatedConfig.data.hours,
+    distance: validatedConfig.data.distance,
     term: validatedConfig.data.term,
     broadSearch: validatedConfig.data.broadSearch,
     concurrency: validatedConfig.data.concurrency,

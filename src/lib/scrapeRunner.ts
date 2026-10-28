@@ -21,6 +21,8 @@ export interface ScrapeConfig {
   hours: number;
   /** Optional per-site result caps (e.g. { indeed: 300, linkedin: 75 }); falls back to `results`. */
   resultsBySite?: Record<string, number>;
+  /** Search radius in miles (Indeed only). Omitted = the Python default of 50. */
+  distance?: number;
 }
 
 export interface ScrapedJobWithAnalysis {
@@ -345,6 +347,7 @@ export async function runScrapeAndAnalyze(
         sites: config.sites,
         results: config.results,
         hours: config.hours,
+        distance: config.distance,
       },
       jobs.map((job) => ({
         role: job.role,

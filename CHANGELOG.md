@@ -2,6 +2,51 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
+## 2026-10-27 — Search yield: 3 listings → 225, and two features that never worked
+
+The pipeline was finding almost nothing. The cause was the search, not the scraper: every one
+of the four levers was at its most restrictive setting.
+
+**Measured on Indeed, Indianapolis (unique listings):**
+
+| lever | restrictive | permissive | effect |
+|---|---|---|---|
+| Term | `photographer` 3 | `photo` 53 | ~17x |
+| Distance | 50mi 51 | 100mi 89 | +70% |
+| Window | 7d 51 | 30d 100 | ~2x |
+| Result cap | 25 | 200+ (pool goes deeper) | 8x |
+
+End to end through the app: **3 unique → 225 unique**, 2.7s.
+
+- **Distance is now a real control.** It was never sent by the app — the Python default of 50
+  was silently always in force, on both the manual and the bulk scan forms. Validated 1-500,
+  threaded through the runner and the bulk per-state calls, and recorded on `scrape_runs` so a
+  past run can be reproduced.
+- **Search presets built from measurements**, and the defaults changed from `software engineer
+  @ Remote` to `photo` + `event staff` at 100mi / 30 days / 100 per site.
+- **Short stems beat job titles**: Indeed ANDs the words, so "wedding photographer" returns 0
+  where "photo" returns hundreds. The UI now says so where you type the terms.
+
+**Two features that silently did nothing, now fixed:**
+
+- **The dashboard's "rank all listings" button returned 401.** `/api/analysis/backfill` is
+  called from the browser with no headers, and the route was wrapped in `withAuth`. Only 2 of
+  27 routes were auth-gated and the UI cannot supply a credential for either, so the gate was a
+  dead feature rather than a protection — 25 other routes, including the one that spends real
+  money on scraping, are open. Both routes are now consistent with the rest of the app.
+  (`/api/admin/import-bls`, the Settings BLS import, had the same problem.)
+- **Batch ranking scored 0 of 228.** Every chunk of 40 hit the 16k output ceiling — our limit,
+  not the provider's (the model allows 128k). Chunk size is now 20, the ceiling 32k, and a
+  chunk the model cannot answer in one response is **halved and retried** instead of losing the
+  whole run. Chunks also run 3-at-a-time: a 228-listing run went from ~15 minutes to ~7, with
+  228/228 scored and 0 errors.
+
+**Result of the fix** — the broad search surfaces listings the narrow terms never could. Top
+scored: Photographer/Videographer at Firebelly Marketing ($35-50/hr), Wedding Videographer at
+Danbren Media ($60-61/hr), Real Estate Media Specialist at Luxe Homes Media, Video Editor at
+IMS Productions, Multimedia Producer at Indiana University, and an Event Associate opening at
+The Mill Top. 24 listings scored interest >= 8.
+
 ## 2026-10-27 — BUTTERFIELD LLC added, contact details in, undated-role rendering fixed
 
 - **BUTTERFIELD LLC** is now a real entry (`Founder & Software Developer`) rather than a

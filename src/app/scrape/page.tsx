@@ -1015,6 +1015,9 @@ function BulkMarketScan() {
   const [bulkSites, setBulkSites] = useState<string[]>(["linkedin", "indeed", "google"]);
   const [bulkResultsBySite, setBulkResultsBySite] = useState<Record<string, number>>(DEFAULT_RESULTS_BY_SITE);
   const [bulkHours, setBulkHours] = useState(168);
+  // Miles, per state (Indeed only). 100 rather than the silent 50 default: a
+  // single state's employers are rarely all inside 50 miles of its search centre.
+  const [bulkDistance, setBulkDistance] = useState(100);
   const [bulkTerm, setBulkTerm] = useState("software engineer");
   const [bulkBroadSearch, setBulkBroadSearch] = useState(true);
   const [bulkConcurrency, setBulkConcurrency] = useState(10);
@@ -1127,6 +1130,7 @@ function BulkMarketScan() {
             bulkSites.map((s) => [s, bulkResultsBySite[s] ?? 50])
           ),
           hours: bulkHours,
+          distance: bulkDistance,
           term: bulkTerm,
           broadSearch: bulkBroadSearch,
           concurrency: bulkConcurrency,
@@ -1255,6 +1259,18 @@ function BulkMarketScan() {
           <div className="grid grid-cols-2 gap-4 max-w-sm">
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Posted within</label>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground block mb-1">
+                  Distance from location (miles, Indeed only)
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={bulkDistance}
+                  onChange={(e) => setBulkDistance(Number(e.target.value))}
+                />
+              </div>
               <Select value={String(bulkHours)} onValueChange={(v) => v && setBulkHours(Number(v))}>
                 <SelectTrigger>
                   <SelectValue>
@@ -1387,15 +1403,60 @@ function BulkMarketScan() {
 
 // ─── New Scrape Tab ───────────────────────────────────────────────────────────
 
+/**
+ * Search presets, built from measured yield on Indeed for the Indianapolis market
+ * (unique listings, 100mi / 30 days):
+ *
+ *   "photo"        ~200+   "photographer"        15
+ *   "event staff"  ~200+   "wedding photographer" 0
+ *   "video"          9+    "wedding dj"            0
+ *
+ * Two things this encodes:
+ *  1. SHORT STEMS WIN. Indeed ANDs the words in a multi-word phrase, so a specific
+ *     title like "wedding photographer" returns nothing while "photo" returns
+ *     hundreds. Search broad, then let the ranker do the narrowing — that is what
+ *     the ranking layer is for.
+ *  2. THE OBVIOUS TITLES ARE NOT WHERE THE WORK IS. "dj" and "wedding dj" return
+ *     zero; live-event and wedding work is not posted on Indeed at all.
+ */
+const SEARCH_PRESETS: { label: string; terms: string[]; note: string }[] = [
+  {
+    label: "Photo / video",
+    terms: ["photo", "video", "video editor", "photo editor", "content creator"],
+    note: "Broad stems — measured ~200 unique vs 3 for \"photographer\"",
+  },
+  {
+    label: "Events / weddings",
+    terms: ["event staff", "event", "wedding", "production assistant", "av technician"],
+    note: "Where event work actually lives on a job board",
+  },
+  {
+    label: "Creative / studio",
+    terms: ["studio assistant", "social media manager", "camera operator", "audio"],
+    note: "Adjacent studio and in-house content roles",
+  },
+  {
+    label: "Software (Butterfield LLC)",
+    terms: ["software developer", "typescript", "python developer", "web developer"],
+    note: "For the LLC's software track",
+  },
+];
+
+const DEFAULT_SEARCH_LOCATION = "Indianapolis, IN";
+
 function NewScrape() {
   const router = useRouter();
 
   const [searches, setSearches] = useState<SearchConfig[]>([
-    { term: "software engineer", location: "Remote" },
+    { term: "photo", location: DEFAULT_SEARCH_LOCATION },
+    { term: "event staff", location: DEFAULT_SEARCH_LOCATION },
   ]);
-  const [sites, setSites] = useState<string[]>(["linkedin", "indeed"]);
-  const [results, setResults] = useState(25);
-  const [hours, setHours] = useState(168);
+  const [sites, setSites] = useState<string[]>(["indeed"]);
+  const [results, setResults] = useState(100);
+  const [hours, setHours] = useState(720);
+  // Miles. Indeed only. 50 is the silent legacy default; 100 roughly doubles yield
+  // here because the metro's employers are spread across Carmel/Fishers/Noblesville.
+  const [distance, setDistance] = useState(100);
 
   const [phase, setPhase] = useState<"idle" | "scraping" | "done" | "error">("idle");
   const [jobs, setJobs] = useState<ScrapedJob[]>([]);
@@ -1442,7 +1503,7 @@ function NewScrape() {
       const res = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ searches, sites, results, hours }),
+        body: JSON.stringify({ searches, sites, results, hours, distance }),
         // Server allows up to 120s for the scrape subprocess plus unbounded
         // AI analysis time afterward (route maxDuration is 300s) — give the
         // client enough headroom to not abort before a real response lands.
@@ -1547,6 +1608,27 @@ function NewScrape() {
       <Card>
         <CardHeader>
           <CardTitle>Searches</CardTitle>
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <span className="text-xs text-muted-foreground">Presets:</span>
+            {SEARCH_PRESETS.map((preset) => (
+              <Button
+                key={preset.label}
+                variant="outline"
+                size="sm"
+                title={preset.note}
+                onClick={() =>
+                  setSearches(preset.terms.map((term) => ({ term, location: DEFAULT_SEARCH_LOCATION })))
+                }
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground pt-1">
+            Use short stems, not full titles: Indeed ANDs the words, so
+            &quot;wedding photographer&quot; returns 0 where &quot;photo&quot; returns hundreds.
+            Search broad and let the ranking layer narrow it.
+          </p>
         </CardHeader>
         <CardContent className="space-y-3">
           {searches.map((s, i) => (
@@ -1612,10 +1694,29 @@ function NewScrape() {
               <Input
                 type="number"
                 min={5}
-                max={100}
+                max={1000}
                 value={results}
                 onChange={(e) => setResults(Number(e.target.value))}
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                The pool is deeper than the cap: a broad term at 100mi/30 days returns far more
+                than 100, so raising this is the cheapest way to see more.
+              </p>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Distance from location (miles)</label>
+              <Input
+                type="number"
+                min={1}
+                max={500}
+                value={distance}
+                onChange={(e) => setDistance(Number(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Indeed only — other sites ignore it. Measured here: 50mi → 100mi is roughly +70%
+                more listings for the same term, because the metro&apos;s employers are spread
+                across Carmel, Fishers, Noblesville and Greenwood.
+              </p>
             </div>
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Posted within</label>

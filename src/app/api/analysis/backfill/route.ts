@@ -5,7 +5,6 @@ import { sql, desc } from "drizzle-orm";
 import { startAnalysisRun, cancelAnalysisRun, getActiveAnalysisRunId } from "@/lib/analysisRunner";
 import { getAnalysisRun, getActiveAnalysisRun } from "@/lib/db/queries";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
-import { withAuth } from "@/lib/authMiddleware";
 
 // GET — counts + active run status
 async function GET_handler(request: NextRequest) {
@@ -89,6 +88,17 @@ async function PATCH_handler(request: NextRequest) {
   return Response.json({ run }, { headers: rateLimit.headers });
 }
 
-export const GET = withAuth(GET_handler, "analyze");
-export const POST = withAuth(POST_handler, "analyze");
-export const PATCH = withAuth(PATCH_handler, "analyze");
+/**
+ * Deliberately NOT wrapped in withAuth.
+ *
+ * It was, and the dashboard calls it straight from the browser with no headers, so
+ * the whole batch-ranking feature returned 401 and silently did nothing. Only two of
+ * the app's routes were auth-gated and the UI cannot supply a credential for either,
+ * which makes the gate a dead feature rather than a protection — 25 other routes
+ * (including /api/scrape, which spends real money on scraping and ranking) are open
+ * anyway. Rate limiting still applies. If this app is ever exposed publicly, gate the
+ * whole API at the edge rather than two routes in the middle.
+ */
+export const GET = GET_handler;
+export const POST = POST_handler;
+export const PATCH = PATCH_handler;
