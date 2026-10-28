@@ -45,6 +45,71 @@ TERMS = [
     "studio assistant",
 ]
 
+# Expansion candidates, grouped by which part of the resume they come from. The point is
+# to find titles that mean the same work under a different name — a resume says "DJ" but
+# the board says "event staff"; it says "photographer" but the posting says "media
+# specialist". Measured at the settings the app now defaults to (100mi / 30d), because
+# measuring new terms under the old restrictive ones would understate them.
+EXPAND_TERMS = [
+    # A. Photo/video production — LA MEDIA, Meet Week Co.
+    "real estate photography",
+    "product photography",
+    "video production",
+    "multimedia specialist",
+    "media specialist",
+    "digital content",
+    "content producer",
+    "post production",
+    "creative services",
+    "media production",
+    # B. Live event / AV — Meet Week live-stream, Complete Weddings, The Mill Top
+    "av",
+    "audiovisual",
+    "audio visual technician",
+    "event technician",
+    "event production",
+    "live event",
+    "stagehand",
+    "event setup",
+    "banquet",
+    "catering",
+    "streaming",
+    "live stream",
+    # C. Weddings / entertainment — Complete Weddings + Events
+    "entertainment",
+    "wedding coordinator",
+    "bridal",
+    # D. Strength sport / fitness — Moran Academy, Meet Week, LA Fitness
+    "strength coach",
+    "sports performance",
+    "personal trainer",
+    "fitness coach",
+    "group fitness",
+    "weightlifting",
+    "sports event",
+    # E. Logistics — Amazon
+    "warehouse",
+    "logistics",
+    "material handler",
+    "inventory",
+    "fulfillment",
+    # F. E-commerce / resale / electronics — eBay refurb, liquidation
+    "e-commerce",
+    "resale",
+    "merchandiser",
+    "electronics technician",
+    # G. Software — Butterfield LLC
+    "web developer",
+    "full stack",
+    "it support",
+    # H. Adjacent roles that hire media people — the titles the work actually hides behind
+    "marketing coordinator",
+    "communications specialist",
+    "social media",
+    "brand ambassador",
+    "creative director",
+]
+
 # Location spellings and radii. jobspy passes `distance` to Indeed only.
 GEO = [
     ("Indianapolis, IN", 25, 168),
@@ -95,7 +160,7 @@ def run(term: str, location: str, distance: int, hours: int) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--phase", choices=["terms", "geo"], default="terms")
+    ap.add_argument("--phase", choices=["terms", "geo", "expand"], default="terms")
     args = ap.parse_args()
 
     results: list[dict] = []
@@ -104,6 +169,10 @@ def main() -> None:
 
     if args.phase == "terms":
         jobs = [(t, "Indianapolis, IN", 50, 168) for t in TERMS]
+    elif args.phase == "expand":
+        # The settings the app now defaults to, so the numbers are comparable to what a
+        # real run would return rather than to the old restrictive baseline.
+        jobs = [(t, "Indianapolis, IN", 100, 720) for t in EXPAND_TERMS]
     else:
         jobs = [
             (t, loc, dist, hrs)
@@ -140,6 +209,13 @@ def main() -> None:
             key=lambda x: -x["unique"],
         ):
             print(f"{r['term']:26} {r['rows']:>5} {r['unique']:>7}")
+    elif args.phase == "expand":
+        print(f"{'term':28} {'rows':>5} {'unique':>7}")
+        for r in sorted(
+            [x for x in results if x["distance"] == 100 and x["hours"] == 720],
+            key=lambda x: -x["unique"],
+        ):
+            print(f"{r['term']:28} {r['rows']:>5} {r['unique']:>7}")
     else:
         print(f"{'location':18} {'dist':>5} {'hours':>6} {'term':26} {'unique':>7}")
         for r in sorted(results, key=lambda x: (x["location"], x["distance"], x["hours"], x["term"])):

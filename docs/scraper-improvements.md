@@ -58,6 +58,49 @@ Three findings that generalise:
    titles plus noise, which the interest axis sorts for roughly 3 cents per 225 listings;
    narrowing the search instead discards the good listings along with the bad.
 
+## Which keywords actually work (measured 2026-10-28)
+
+Raw yield is misleading, so this measures **relevance** too: for each term, how many of the
+returned titles are actually this work. `scripts/measure-search-relevance.py` classifies
+titles (core = media/event production, adjacent = marketing/fitness/logistics) and writes
+`data/search-relevance.json`. Measured on Indeed, Indianapolis, 100mi / 30 days.
+
+| term | yield | on-target | note |
+|---|---|---|---|
+| `video production` | 14 | **14 (100%)** | Wedding Videographer, Photographer/Videographer, CATS Videographer/Editor |
+| `real estate photography` | 4 | **3 (75%)** | Real Estate Photographer/Videographer, Field Reporting Specialist |
+| `post production` | 50 | 32 (64%) | mixed — also matches manufacturing "Production Lead" |
+| `media production` | 100 | 31 | Multimedia Marketing Manager, Photographer/Videographer |
+| `digital content` | 100 | 32 | Digital Content Specialist, Media Manager |
+| `product photography` | 63 | 20 | Stylist (Food Photography), Photographer/Videographer |
+| `event setup` | 100 | 15 | Events Setup Staff, Event Assistant, Stagehand |
+| `social media` | 86 | 15 | mostly adjacent marketing roles |
+| `creative services` | 100 | 11 | |
+| `audiovisual` | 55 | 11 | Audio-Visual Service Technician |
+| `streaming` | 54 | 11 | |
+| `communications specialist` | 61 | 11 | Digital Content Specialist |
+| `media specialist` | 7 | 6 (86%) | small but precise |
+| `content producer` | 3 | 2 | DIGITAL CONTENT PRODUCER (WTHI), Web Content Producer |
+
+### Three findings
+
+1. **The terms that sound most like the job return the least.** `event technician` 1,
+   `stagehand` 1, `audio visual technician` 5, `media specialist` 7, `real estate
+   photography` 4, `content producer` 3. The work is found under generic domain stems, not
+   under its own name.
+2. **High yield is not relevance.** `merchandiser` returns **87 listings and 0** are this
+   work (all retail). `resale` 26/0. `warehouse` 100/4. `live stream` 85/3. `event
+   production` 100/9 (it matches manufacturing "production"). `catering` and `banquet`
+   100/7 each. Searching these costs ranking budget and buries the good listings.
+3. **Vertical verdicts.** Media/event production works on Indeed. Fitness/strength mostly
+   does not: `weightlifting` 100 yield but 2 on-target, `fitness coach` 1, `personal
+   trainer` 0, `sports performance` 1. And DJ/wedding is **zero** — that work is not on job
+   boards at all and needs vendor channels.
+
+Caveat on the classifier: it counts "production" and "media", so a manufacturing
+"Production Lead" scores as on-target. The recommended terms above were verified by reading
+their actual titles, not just the counter.
+
 ## JobSpy limits (verified from source — `pip show -f python-jobspy`)
 
 - **Indeed** — fast, no built-in delay, mobile GraphQL API, pages 100 at a time, natural

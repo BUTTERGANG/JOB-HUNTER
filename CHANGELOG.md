@@ -2,7 +2,34 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
-## 2026-10-28 — Next steps + pipeline progress (no XP, no points)
+## 2026-10-28 — Keyword expansion, measured for relevance not just volume
+
+Asked what other keywords to search. Answered by measuring rather than guessing: 48
+candidate terms drawn from the resume (LA MEDIA, Complete Weddings, Meet Week, Moran
+Academy, Amazon, LA Fitness, Butterfield LLC), each scraped and classified by whether its
+titles are actually this work.
+
+**New tooling:** `scripts/measure-search-relevance.py` — scores a term by how many of its
+returned titles are media/event production vs adjacent vs noise. Written because yield
+alone gave bad advice.
+
+**The finding that changed the presets:** the terms that sound most like the job return the
+least (`event technician` 1, `stagehand` 1, `audio visual technician` 5, `media specialist`
+7), while the work hides under generic stems — `video production` returned **14 listings,
+all 14 on-target**. And the biggest numbers are usually noise: `merchandiser` 87 listings /
+**0** relevant, `warehouse` 100/4, `live stream` 85/3, `event production` 100/9 (it matches
+manufacturing "production").
+
+**Presets rebuilt** around measured relevance: Photo/video (`video production`, `product
+photography`, `real estate photography`), Events/AV (`event setup`, `audiovisual`,
+`streaming`), and a new Media/content-roles set (`digital content`, `media production`,
+`media specialist`, `content producer`, `creative services`, `communications specialist`).
+
+**Vertical verdicts:** media/event production works on Indeed; fitness/strength mostly does
+not (`weightlifting` 2 on-target of 100, `fitness coach` 1, `personal trainer` 0); DJ and
+wedding remain **zero** — that work is not on job boards and needs vendor channels.
+
+ + pipeline progress (no XP, no points)
 
 Momentum layer, built to the shape asked for: **simple next steps you tick off**, and
 **metrics over time for how far each listing got in the interview process**. No XP,

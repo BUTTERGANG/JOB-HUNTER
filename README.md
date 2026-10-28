@@ -319,9 +319,29 @@ Together: **3 unique listings → 225**, in 2.7 seconds.
    listings. Narrowing the search instead of the ranking throws away the good listings with the
    bad ones.
 
-The Scrape page ships presets built from these measurements (Photo/video, Events/weddings,
-Creative/studio, Software), defaulting to `photo` + `event staff` at 100 mi / 30 days / 100 per
-site. **Distance** is now a real control (it was silently fixed at 50) and every run records the
+The Scrape page ships presets built from these measurements (Photo/video, Events/AV,
+Media/content roles, Software), defaulting to `photo` + `event staff` at 100 mi / 30 days /
+100 per site.
+
+### Yield is not relevance — measure both
+
+A term returning 100 listings is worthless if none of them are your work, and that is the
+common case. Measured on Indeed for this market:
+
+| term | yield | on-target |
+|---|---|---|
+| `video production` | 14 | **14 (100%)** |
+| `real estate photography` | 4 | 3 (75%) |
+| `media production` | 100 | 31 |
+| `digital content` | 100 | 32 |
+| `merchandiser` | **87** | **0** |
+| `warehouse` | 100 | 4 |
+| `live stream` | 85 | 3 |
+
+Two rules follow: **the terms that sound most like the job return the least** (`event
+technician` 1, `stagehand` 1, `audio visual technician` 5), and **the biggest numbers are
+usually noise**. `scripts/measure-search-relevance.py` scores a term by how many of its
+titles are actually this work — run it before adding a keyword. **Distance** is now a real control (it was silently fixed at 50) and every run records the
 radius it used, so a past run can be reproduced.
 
 ## Verifying

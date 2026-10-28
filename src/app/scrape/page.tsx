@@ -1422,18 +1422,18 @@ function BulkMarketScan() {
 const SEARCH_PRESETS: { label: string; terms: string[]; note: string }[] = [
   {
     label: "Photo / video",
-    terms: ["photo", "video", "video editor", "photo editor", "content creator"],
-    note: "Broad stems — measured ~200 unique vs 3 for \"photographer\"",
+    terms: ["photo", "video", "video production", "product photography", "real estate photography", "photo editor"],
+    note: "\"video production\" returned 14/14 on-target titles; \"real estate photography\" 3/4",
   },
   {
-    label: "Events / weddings",
-    terms: ["event staff", "event", "wedding", "production assistant", "av technician"],
-    note: "Where event work actually lives on a job board",
+    label: "Events / AV",
+    terms: ["event staff", "event setup", "audiovisual", "streaming", "av", "banquet"],
+    note: "\"event setup\" 15/100 on-target; \"audiovisual\" and \"streaming\" ~20%",
   },
   {
-    label: "Creative / studio",
-    terms: ["studio assistant", "social media manager", "camera operator", "audio"],
-    note: "Adjacent studio and in-house content roles",
+    label: "Media / content roles",
+    terms: ["digital content", "media production", "media specialist", "content producer", "creative services", "communications specialist"],
+    note: "The titles this work actually hides behind — 11-32 on-target listings each",
   },
   {
     label: "Software (Butterfield LLC)",
@@ -1627,7 +1627,9 @@ function NewScrape() {
           <p className="text-xs text-muted-foreground pt-1">
             Use short stems, not full titles: Indeed ANDs the words, so
             &quot;wedding photographer&quot; returns 0 where &quot;photo&quot; returns hundreds.
-            Search broad and let the ranking layer narrow it.
+            Measured relevance matters more than raw yield — &quot;merchandiser&quot; returns 87
+            listings and none of them are this work, while &quot;video production&quot; returns 14
+            and all 14 are. Re-measure with scripts/measure-search-relevance.py.
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
