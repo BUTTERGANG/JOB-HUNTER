@@ -211,6 +211,30 @@ export const govScrapeResults = sqliteTable("gov_scrape_results", {
     .notNull(),
 });
 
+export const jobSteps = sqliteTable("job_steps", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  jobId: integer("job_id")
+    .references(() => jobs.id, { onDelete: "cascade" })
+    .notNull(),
+  label: text("label").notNull(),
+  detail: text("detail"),
+  dueDate: text("due_date"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  completedAt: text("completed_at"),
+});
+
+export const jobStageEvents = sqliteTable("job_stage_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  jobId: integer("job_id")
+    .references(() => jobs.id, { onDelete: "cascade" })
+    .notNull(),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  occurredAt: text("occurred_at").notNull().default(sql`(datetime('now'))`),
+  source: text("source").notNull().default("manual"),
+  note: text("note"),
+});
+
 export const listingStatusHistory = sqliteTable("listing_status_history", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   jobId: integer("job_id")
@@ -220,6 +244,10 @@ export const listingStatusHistory = sqliteTable("listing_status_history", {
   checkedAt: text("checked_at").notNull(),
 });
 
+export type JobStep = typeof jobSteps.$inferSelect;
+export type NewJobStep = typeof jobSteps.$inferInsert;
+export type JobStageEvent = typeof jobStageEvents.$inferSelect;
+export type NewJobStageEvent = typeof jobStageEvents.$inferInsert;
 export type AnalysisRunRow = typeof analysisRuns.$inferSelect;
 export type BulkRunRow = typeof bulkRuns.$inferSelect;
 export type GovScrapeRun = typeof govScrapeRuns.$inferSelect;

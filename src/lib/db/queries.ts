@@ -1,11 +1,12 @@
 import { db } from "./index";
-import { jobs, resumes, analyses, settings, scrapeRuns, scrapeResults, jobAnalysis, blsWages, bulkRuns, analysisRuns, govScrapeRuns, govScrapeResults, listingStatusHistory } from "./schema";
+import { jobs, resumes, analyses, settings, scrapeRuns, scrapeResults, jobAnalysis, blsWages, bulkRuns, analysisRuns, govScrapeRuns, govScrapeResults, listingStatusHistory, jobSteps, jobStageEvents } from "./schema";
 import { eq, desc, inArray, sql } from "drizzle-orm";
-import type { NewJob, ScrapeResult, BulkRunRow, AnalysisRunRow, GovScrapeResult } from "./schema";
+import type { NewJob, NewJobStep, ScrapeResult, BulkRunRow, AnalysisRunRow, GovScrapeResult } from "./schema";
 import type { JobAnalysisResult } from "../ai/analyzeJobs";
 import { ensureDb } from "./ensure";
 import { getJobIdentityKey, type JobIdentityInput } from "../jobIdentity";
 import { parseTargetProfile, PROFILE_SETTING_KEY, type TargetProfile } from "../profile";
+import { computePipelineMetrics, proposeNextStep, stageLabel } from "../pipeline";
 
 export interface BLSWageData {
   occTitle: string;
@@ -94,7 +95,7 @@ export function createJob(data: NewJob) {
     ? scores.reduce((a, b) => a! + b!, 0)
     : null;
 
-  return d
+  const created = d
     .insert(jobs)
     .values({
       ...data,
@@ -105,6 +106,15 @@ export function createJob(data: NewJob) {
     })
     .returning()
     .get();
+
+  // Start the history at creation. A job imported already at 'applied' gets that as its
+  // first event, so it is never treated as having been sitting at 'saved'.
+  if (created) {
+    recordStageEvent(created.id, null, created.status, "import");
+    ensureNextStep(created.id);
+  }
+
+  return created;
 }
 
 export function updateJob(id: number, data: Partial<NewJob>) {
@@ -117,13 +127,19 @@ export function updateJob(id: number, data: Partial<NewJob>) {
     if (!PROTECTED_FIELDS.has(k)) clean[k] = v;
   }
 
+  // Moving into 'applied' is the one transition we can date for you, and the metrics
+  // depend on it: without a date_applied there is no "days to first response".
+  if (clean.status === "applied" && !existing.dateApplied && !clean.dateApplied) {
+    clean.dateApplied = new Date().toISOString().slice(0, 10);
+  }
+
   const merged = { ...existing, ...clean };
   const scores = [merged.scoreRole, merged.scoreSkills, merged.scoreCompany, merged.scoreComp, merged.scoreGrowth];
   const total = scores.every((s) => s != null)
     ? scores.reduce((a, b) => a! + b!, 0)
     : null;
 
-  return d
+  const updated = d
     .update(jobs)
     .set({
       ...clean,
@@ -133,6 +149,205 @@ export function updateJob(id: number, data: Partial<NewJob>) {
     .where(eq(jobs.id, id))
     .returning()
     .get();
+
+  // Record the transition and line up the next step. Done here rather than in the API
+  // route so that every path which changes a status — the UI, the import, a future
+  // automation — produces the same history. A status change that silently skipped the
+  // log would make "how far did I get" quietly wrong, which is the whole point.
+  if (updated && clean.status && clean.status !== existing.status) {
+    recordStageEvent(id, existing.status, clean.status as string, "manual");
+    ensureNextStep(id);
+  }
+
+  return updated;
+}
+
+// ── Next steps ──────────────────────────────────────────────────────────────
+
+export function getJobSteps(jobId: number) {
+  const d = getDb();
+  return d
+    .select()
+    .from(jobSteps)
+    .where(eq(jobSteps.jobId, jobId))
+    .orderBy(desc(jobSteps.createdAt))
+    .all();
+}
+
+/** Every open step, with enough job context to render without a second query. */
+export function getOpenSteps() {
+  const d = getDb();
+  const rows = d
+    .select({
+      id: jobSteps.id,
+      jobId: jobSteps.jobId,
+      label: jobSteps.label,
+      detail: jobSteps.detail,
+      dueDate: jobSteps.dueDate,
+      createdAt: jobSteps.createdAt,
+      company: jobs.company,
+      role: jobs.role,
+      status: jobs.status,
+      url: jobs.url,
+    })
+    .from(jobSteps)
+    .innerJoin(jobs, eq(jobs.id, jobSteps.jobId))
+    .where(sql`${jobSteps.completedAt} IS NULL`)
+    .all();
+
+  // Overdue first, then soonest due, then oldest — the order you should work them in.
+  const today = new Date().toISOString().slice(0, 10);
+  return rows.sort((a, b) => {
+    const aDue = a.dueDate ?? "9999-12-31";
+    const bDue = b.dueDate ?? "9999-12-31";
+    const aOver = aDue < today ? 0 : 1;
+    const bOver = bDue < today ? 0 : 1;
+    if (aOver !== bOver) return aOver - bOver;
+    if (aDue !== bDue) return aDue < bDue ? -1 : 1;
+    return a.createdAt < b.createdAt ? -1 : 1;
+  });
+}
+
+export function addJobStep(data: NewJobStep) {
+  const d = getDb();
+  return d.insert(jobSteps).values(data).returning().get();
+}
+
+/**
+ * Tick a step off.
+ *
+ * Completing an "Apply" step also moves the job to 'applied' — that is what ticking it
+ * off means, and doing it here keeps the status, the date and the metrics consistent
+ * without asking for the same information twice.
+ */
+export function completeJobStep(stepId: number) {
+  const d = getDb();
+  const step = d.select().from(jobSteps).where(eq(jobSteps.id, stepId)).get();
+  if (!step) return null;
+
+  const now = new Date().toISOString();
+  const done = d
+    .update(jobSteps)
+    .set({ completedAt: now })
+    .where(eq(jobSteps.id, stepId))
+    .returning()
+    .get();
+
+  const job = getJobById(step.jobId);
+  if (job && /^apply$/i.test(step.label.trim()) && job.status === "saved") {
+    updateJob(job.id, { status: "applied" });
+  } else {
+    ensureNextStep(step.jobId);
+  }
+
+  return done;
+}
+
+export function reopenJobStep(stepId: number) {
+  const d = getDb();
+  return d
+    .update(jobSteps)
+    .set({ completedAt: null })
+    .where(eq(jobSteps.id, stepId))
+    .returning()
+    .get();
+}
+
+export function deleteJobStep(stepId: number) {
+  const d = getDb();
+  return d.delete(jobSteps).where(eq(jobSteps.id, stepId)).run();
+}
+
+/**
+ * Make sure the job has an open step, proposing one from its status if it has none.
+ *
+ * Idempotent: calling it repeatedly never stacks duplicate steps. Terminal outcomes
+ * propose nothing, so a closed pipeline stops appearing in the queue.
+ */
+export function ensureNextStep(jobId: number): void {
+  const job = getJobById(jobId);
+  if (!job) return;
+
+  const open = getJobSteps(jobId).filter((s) => s.completedAt === null);
+  if (open.length > 0) return;
+
+  const suggestion = proposeNextStep({
+    status: job.status,
+    dateApplied: job.dateApplied,
+    followUpDate: job.followUpDate,
+  });
+  if (!suggestion) return;
+
+  addJobStep({
+    jobId,
+    label: suggestion.label,
+    detail: suggestion.detail,
+    dueDate: suggestion.dueDate,
+  });
+}
+
+// ── Stage history ───────────────────────────────────────────────────────────
+
+export function recordStageEvent(
+  jobId: number,
+  fromStatus: string | null,
+  toStatus: string,
+  source: "manual" | "import" | "system" = "manual",
+  note?: string
+) {
+  const d = getDb();
+  return d
+    .insert(jobStageEvents)
+    .values({ jobId, fromStatus, toStatus, source, note, occurredAt: new Date().toISOString() })
+    .run();
+}
+
+export function getJobStageEvents(jobId: number) {
+  const d = getDb();
+  return d
+    .select()
+    .from(jobStageEvents)
+    .where(eq(jobStageEvents.jobId, jobId))
+    .orderBy(jobStageEvents.occurredAt)
+    .all();
+}
+
+export function getAllStageEvents() {
+  const d = getDb();
+  return d.select().from(jobStageEvents).orderBy(jobStageEvents.occurredAt).all();
+}
+
+/** Everything the progress view needs, in one place. */
+export function getPipelineMetrics() {
+  const d = getDb();
+  const allJobs = d
+    .select({
+      id: jobs.id,
+      company: jobs.company,
+      role: jobs.role,
+      status: jobs.status,
+      dateApplied: jobs.dateApplied,
+      followUpDate: jobs.followUpDate,
+    })
+    .from(jobs)
+    .all();
+
+  const events = d
+    .select({
+      jobId: jobStageEvents.jobId,
+      fromStatus: jobStageEvents.fromStatus,
+      toStatus: jobStageEvents.toStatus,
+      occurredAt: jobStageEvents.occurredAt,
+    })
+    .from(jobStageEvents)
+    .all();
+
+  return computePipelineMetrics(allJobs, events);
+}
+
+/** Human-readable one-liner for a stage, used by the timeline UI. */
+export function describeStage(status: string): string {
+  return stageLabel(status);
 }
 
 export function deleteJob(id: number) {

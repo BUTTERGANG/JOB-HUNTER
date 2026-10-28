@@ -20,6 +20,8 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 - **Salary targeting** — Set minimum/target/stretch salaries; benchmark against BLS data
 - **Master resume** — Store your resume once; use it when tailoring applications
 - **AI resume tailoring** — Generate a job-specific resume from your master resume + the JD (structured JSON), preview it, hand-edit it, and export to Word (`.docx`)
+- **Next steps, not a to-do list** — every tracked job carries exactly one actionable step, chosen from its status (Apply → Follow up → Send thank-you → Ask for timeline → Respond to offer). Tick it off and the next one is proposed automatically. Completing an "Apply" step also advances the job to applied and dates it, so the metrics below need no extra bookkeeping
+- **Progress you can measure** — every status change is appended to a stage history, so "how far did I get" survives a rejection: a rejection after an onsite still counts as having reached the onsite. The dashboard shows the funnel (applied → responded → interview → offer) with conversion rates, median days to first response, the furthest-stage-reached distribution, and applications grouped by the week they went out
 - **Listing availability detection** — Recheck a tracked job's original posting (per-job or bulk) to flag it `active` / `expired` / `unknown`; every check is logged to history for long-term trend analysis
 
 ## Tech Stack
@@ -321,6 +323,28 @@ The Scrape page ships presets built from these measurements (Photo/video, Events
 Creative/studio, Software), defaulting to `photo` + `event staff` at 100 mi / 30 days / 100 per
 site. **Distance** is now a real control (it was silently fixed at 50) and every run records the
 radius it used, so a past run can be reproduced.
+
+## Verifying
+
+Three offline harnesses and one live one. All of them assert on real rows and real
+responses rather than on the code's intent.
+
+```bash
+# Pipeline progression rules — stage ordering, "furthest reached", next-step choice,
+# conversion rates, UTC timestamp handling. No DB, no network.
+node_modules/.bin/tsx scripts/verify-pipeline-metrics.ts
+
+# Next steps + stage history against the real database. Creates a marked test job,
+# drives it through the pipeline, then deletes it (the cascade cleans up).
+node_modules/.bin/tsx scripts/verify-steps.ts
+
+# Ranking rules — units, the commitment rule, weight normalisation, profile round-trips.
+node_modules/.bin/tsx scripts/verify-ranking.ts
+```
+
+`scripts/backfill-pipeline-history.ts` seeds a stage event and a first next step for jobs
+tracked before this feature existed. It is idempotent and safe to run against a live
+database (`--dry-run` to preview).
 
 ## Verifying the pipeline
 

@@ -31,6 +31,20 @@
 
 ---
 
+## Done (2026-10-28)
+
+| Task | Completed |
+|------|-----------|
+| Next steps: one actionable step per tracked job, ticked off, auto-proposed from status | 2026-10-28 |
+| Stage history (`job_stage_events`), logged inside `updateJob` so no path can skip it | 2026-10-28 |
+| Progress metrics: funnel + rates, median days to first response, furthest reached, weekly cohorts | 2026-10-28 |
+| Dashboard panels (Next steps first, then progress); per-job steps API | 2026-10-28 |
+| Backfill for jobs tracked before the feature | 2026-10-28 |
+| Harnesses: `verify-pipeline-metrics.ts` 62 checks, `verify-steps.ts` 38 checks | 2026-10-28 |
+| UI verified rendering in Brave (8 checks, tab closed after) | 2026-10-28 |
+
+---
+
 ## Sprint Backlog
 
 | Task File | Priority | Estimate | Status |

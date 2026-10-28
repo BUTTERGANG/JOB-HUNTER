@@ -2,7 +2,40 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
-## 2026-10-28 — Docs brought in line with reality, and the harness un-broken
+## 2026-10-28 — Next steps + pipeline progress (no XP, no points)
+
+Momentum layer, built to the shape asked for: **simple next steps you tick off**, and
+**metrics over time for how far each listing got in the interview process**. No XP,
+levels, streaks or badges — deliberately, because rewarding application *volume* trains
+you to spam listings.
+
+- **One next step per tracked job**, chosen from its status: Apply → Follow up (10-day
+  window) → Send thank-you → Ask for timeline → Respond to offer. Terminal outcomes
+  propose nothing, so a closed pipeline stops nagging. Tick it off and the next is
+  proposed automatically; completing an **Apply** step also moves the job to `applied`
+  and dates it, so nothing has to be entered twice.
+- **`job_stage_events`, append-only.** `jobs.status` only holds the CURRENT status, so on
+  its own it cannot answer "how far did I get" — a rejection after an onsite and a
+  rejection the day after applying are the same value. Every transition is now logged
+  **inside `updateJob`**, so every path that changes a status (UI, import, any future
+  automation) produces the same history.
+- **Metrics**: funnel with conversion rates over *applied* jobs (a saved listing you
+  never applied to cannot fail to respond, so it must not dilute the rate), median days
+  to first response, furthest-stage-reached distribution, and applications grouped by
+  week. A rejected listing keeps its high-water mark and counts as having reached it.
+- **Dashboard**: "Next steps" is now the first thing on the page, since it is the only
+  part that asks you to do something; the progress panel sits beside the scrape stats.
+- **`scripts/backfill-pipeline-history.ts`** seeds history and a first step for jobs
+  tracked before this existed (idempotent, `--dry-run` supported).
+- **Two new harnesses**: `verify-pipeline-metrics.ts` (62 checks, pure rules) and
+  `verify-steps.ts` (38 checks against the real DB, self-cleaning).
+
+Bugs caught while building it: a follow-up step reported a 10-day window as "in 9 days"
+by measuring from a timestamp instead of from today; `daysBetween` accepted a null second
+argument in the type but not in the signature; the new progress component shadowed the
+existing `Progress` bar import; and the harness's `eq` compared arrays by reference.
+
+ with reality, and the harness un-broken
 
 - **`verify-pipeline.ts` hardcoded `localhost:3002`**, so once the app became a service
   bound to the Tailscale address it reported "cannot reach the server" against a perfectly

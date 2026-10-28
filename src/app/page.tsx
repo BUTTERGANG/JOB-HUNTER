@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { NextSteps, type OpenStep } from "@/components/dashboard/next-steps";
+import { PipelineProgressCard, type PipelineProgress } from "@/components/dashboard/progress";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
@@ -61,6 +63,10 @@ interface DashboardData {
     needFollowUp: { id: number; company: string; role: string; dateApplied: string; daysSince: number }[];
     total: number;
   };
+  /** One actionable step per tracked job, overdue first. */
+  nextSteps: OpenStep[];
+  /** How far applications actually got, from the stage-event log. */
+  progress: PipelineProgress;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -238,7 +244,16 @@ export default function DashboardPage() {
     return <div className="flex min-h-[28rem] items-center justify-center rounded-2xl border border-destructive/30 bg-destructive/5 px-6 text-center text-destructive" role="alert">{error || "No data"}</div>;
   }
 
-  const { scrape, topJobs, scoreDistribution, recentRuns, pipeline } = data;
+  const { scrape, topJobs, scoreDistribution, recentRuns, pipeline, nextSteps, progress } = data;
+
+  // Completing a step can advance a job's status, so re-read the whole dashboard rather
+  // than patching state locally — the pipeline counts and metrics move with it.
+  function refresh() {
+    fetch("/api/dashboard")
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => {});
+  }
   const hasScrapedData = scrape.total > 0;
 
   return (
@@ -258,6 +273,13 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Next steps: the first thing on the page, because it is the only part
+             that asks you to do something ── */}
+      <NextSteps steps={nextSteps} onChanged={refresh} />
+
+      {/* ── How far applications got ── */}
+      <PipelineProgressCard data={progress} />
 
       {/* ── Scrape stats ── */}
       {hasScrapedData ? (

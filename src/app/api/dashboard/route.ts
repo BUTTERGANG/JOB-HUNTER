@@ -3,6 +3,7 @@ import { scrapeResults, jobAnalysis, scrapeRuns, jobs } from "@/lib/db/schema";
 import { sql, desc } from "drizzle-orm";
 import { normalizeJobUrl } from "@/lib/jobIdentity";
 import { FOLLOW_UP_DAYS } from "@/lib/constants";
+import { getOpenSteps, getPipelineMetrics } from "@/lib/db/queries";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -251,6 +252,12 @@ async function GET_handler(request: NextRequest) {
       needFollowUp,
       total: allJobs.length,
     },
+    // The actionable half: what to do next, ordered overdue-first.
+    nextSteps: getOpenSteps(),
+    // The measuring half: how far each listing got, and the rates that follow from it.
+    // Computed from the stage-event log, not from current statuses, so a rejection
+    // after an onsite still counts as having reached the onsite.
+    progress: getPipelineMetrics(),
   }, { headers: rateLimit.headers });
 }
 

@@ -178,6 +178,37 @@ export const SCHEMA_SQL = `
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- Next steps: one actionable thing to do per tracked job, ticked off when done.
+  -- Kept as history rather than a single mutable column so "what did I actually do,
+  -- and when" survives, and so completed steps can be counted over time.
+  CREATE TABLE IF NOT EXISTS job_steps (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id       INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    label        TEXT NOT NULL,
+    detail       TEXT,
+    due_date     TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id);
+  CREATE INDEX IF NOT EXISTS idx_job_steps_open ON job_steps(completed_at, due_date);
+
+  -- Every status transition, append-only. This is what makes "how far did I get in
+  -- the interview process" answerable after the fact: the jobs table only holds the
+  -- CURRENT status, so a rejection after an onsite would otherwise be indistinguishable
+  -- from a rejection the day after applying.
+  CREATE TABLE IF NOT EXISTS job_stage_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    from_status TEXT,
+    to_status   TEXT NOT NULL,
+    occurred_at TEXT NOT NULL DEFAULT (datetime('now')),
+    source      TEXT NOT NULL DEFAULT 'manual',
+    note        TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_job_stage_events_job
+    ON job_stage_events(job_id, occurred_at);
+
   CREATE TABLE IF NOT EXISTS listing_status_history (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id     INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
