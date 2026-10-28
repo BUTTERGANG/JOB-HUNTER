@@ -103,7 +103,7 @@ Built and verified end to end (scrape → rank → persist → track → tailor 
 | Multi-board scrape (jobspy: Indeed, LinkedIn, Google, ZipRecruiter, Glassdoor) | working; search settings measured and tuned |
 | AI ranking from the Target Profile | working; 228 listings scored in ~7 min, 0 errors |
 | Unit-aware pay + earnings-aware commitment rule | working; asserted offline by `verify-ranking.ts` |
-| Job tracking, market analysis, BLS wage benchmarks | working |
+| Job tracking, next steps, pipeline progress metrics, market analysis, BLS benchmarks | working |
 | Resume: master + per-job tailoring + `.docx` export | working — **one job at a time, from the job page** |
 | Scheduled scrapes + Discord alerts | working |
 | Runs as a LaunchAgent on the mini, reachable over Tailscale | working |
@@ -231,6 +231,7 @@ job-hunt-app/
 | `/api/jobs/import` | POST | Bulk import from scrape results |
 | `/api/jobs/[id]` | GET/PATCH/DELETE | Job CRUD |
 | `/api/jobs/[id]/analysis` | POST | Re-analyze a job |
+| `/api/jobs/[id]/steps` | GET/POST/PATCH | Next steps for a job + its stage history; add, complete, reopen or dismiss a step |
 | `/api/jobs/[id]/fetch-description` | POST | Fetch + extract a tracked job's posting text |
 | `/api/government-postings/scrape` | POST | Scrape WorkForIndiana state postings |
 | `/api/admin/import-bls` | GET/POST | BLS OEWS wage data status / import |
@@ -344,51 +345,68 @@ usually noise**. `scripts/measure-search-relevance.py` scores a term by how many
 titles are actually this work — run it before adding a keyword. **Distance** is now a real control (it was silently fixed at 50) and every run records the
 radius it used, so a past run can be reproduced.
 
+## Next steps & progress
+
+Every tracked job carries exactly one actionable step, derived from its status — you never
+have to decide what to do next:
+
+| status | proposed step |
+|---|---|
+| `saved` | Apply |
+| `applied` | Follow up (10 days after applying, `FOLLOW_UP_DAYS`) |
+| `phone_screen`, `technical` | Send thank-you note |
+| `onsite` | Send thank-you + ask for timeline |
+| `offer` | Respond to the offer |
+| `rejected`, `ghosted`, `withdrew` | nothing — a closed pipeline stops nagging |
+
+Ticking off an **Apply** step also moves the job to `applied` and dates it, so the metrics
+need no separate bookkeeping.
+
+**Progress is measured from a stage-event log, not from the current status.** `jobs.status`
+holds only the current value, so on its own it cannot answer "how far did I get" — a
+rejection after an onsite and a rejection the day after applying are the same string. Every
+transition is appended to `job_stage_events` inside `updateJob`, so every path that changes
+a status (the UI, an import, any future automation) produces the same history. From that:
+the funnel with conversion rates over *applied* jobs (a saved listing you never applied to
+cannot fail to respond, so it must not dilute them), median days to first response, the
+furthest-stage-reached distribution — a rejected listing keeps its high-water mark — and
+applications grouped by week.
+
 ## Verifying
 
-Three offline harnesses and one live one. All of them assert on real rows and real
-responses rather than on the code's intent.
+Five scripts, in increasing order of what they need. All of them assert on real rows and
+real responses rather than on the code's intent.
 
 ```bash
-# Pipeline progression rules — stage ordering, "furthest reached", next-step choice,
-# conversion rates, UTC timestamp handling. No DB, no network.
+# 1. Pipeline progression rules — stage ordering, "furthest reached", next-step choice,
+#    conversion rates, UTC timestamp handling. No DB, no network.
 node_modules/.bin/tsx scripts/verify-pipeline-metrics.ts
 
-# Next steps + stage history against the real database. Creates a marked test job,
-# drives it through the pipeline, then deletes it (the cascade cleans up).
+# 2. Next steps + stage history against the real database. Creates a marked test job,
+#    drives it through the pipeline, then deletes it (the cascade cleans up).
 node_modules/.bin/tsx scripts/verify-steps.ts
 
-# Ranking rules — units, the commitment rule, weight normalisation, profile round-trips.
-node_modules/.bin/tsx scripts/verify-ranking.ts
-```
-
-`scripts/backfill-pipeline-history.ts` seeds a stage event and a first next step for jobs
-tracked before this feature existed. It is idempotent and safe to run against a live
-database (`--dry-run` to preview).
-
-## Verifying the pipeline
-
-Three scripts, in increasing order of what they need:
-
-```bash
-# 1. Offline ranking logic — no API key, no network. Units, the commitment rule,
-#    weight normalisation, penalty visibility, profile round-trips, and that no
-#    persona text survives in the prompt.
+# 3. Ranking rules — units, the commitment rule, weight normalisation, penalty
+#    visibility, profile round-trips, and that no persona text survives in the prompt.
 node_modules/.bin/tsx scripts/verify-ranking.ts
 
-# 2. Live ranking — runs the real ranker through the configured provider against the
-#    real scraped listings plus off-profile controls, and prints axes, pay unit,
-#    hours verdict, flags, penalties and notes.
+# 4. Live ranking — the real ranker through the configured provider, against the real
+#    scraped listings plus off-profile controls; prints axes, pay unit, hours verdict,
+#    flags, penalties and notes.
 node_modules/.bin/tsx scripts/rank-probe.ts
 
-# 3. Whole pipeline against a running dev server — scrape (Python) → rank → persist →
-#    market analysis → import to tracker → listing recheck → resume JSON → DOCX →
-#    dashboard → paste-a-posting. Prints PASS/FAIL per stage.
+# 5. Whole pipeline against a running server — scrape → rank → persist → market analysis
+#    → import to tracker → listing recheck → resume JSON → DOCX → dashboard →
+#    paste-a-posting. Prints PASS/FAIL per stage, and auto-detects the server
+#    (BASE → localhost → this machine's Tailscale address).
 node_modules/.bin/tsx scripts/verify-pipeline.ts
 ```
 
-`verify-pipeline.ts` writes a **placeholder** master resume for the resume stages and removes
-it at the end, so it never masquerades as the real one.
+`verify-pipeline.ts` writes a **placeholder** master resume for the resume stages and
+removes it at the end, so it never masquerades as the real one.
+
+`scripts/backfill-pipeline-history.ts` seeds a stage event and a first next step for jobs
+tracked before that feature existed — idempotent, `--dry-run` to preview.
 
 ## Discord Notifications
 
