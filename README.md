@@ -340,6 +340,12 @@ The master resume is the single source of truth: the tailor reorders and rephras
 there and is forbidden from inventing anything, so anything missing from it is missing from
 every generated resume.
 
+The converter merges **two sources**: the work-history spreadsheet (detail per role) and the
+LinkedIn profile (dates, public-facing titles, education, certifications, and roles the
+spreadsheet never had — a current role that exists only on LinkedIn was missing entirely).
+LinkedIn facts live in a `LINKEDIN` block in the script; conflicts are resolved in
+`CORRECTIONS`/`LOCATIONS` rather than by hand-editing the output.
+
 If your history lives in a spreadsheet (`Year | Company | Position/Title | Responsibilities |
 Skills Gained | Key Achievements/Metrics | Relevant For`), convert it:
 
@@ -357,6 +363,12 @@ node_modules/.bin/tsx scripts/import-master-resume.ts data/master_resume.md
   year, for example) live in `CORRECTIONS` at the top of the script.
 - Rows containing `TODO` are **excluded from the resume text** but kept in the CSV/XLSX, so a
   half-finished entry can't reach a generated resume as if it were experience.
+- Education and certifications are emitted as their own sections. Certifications keep their
+  issuer and stated dates and are **never** silently renewed — an expired certification is
+  shown as expired, or dropped, not extended.
+- Location and LinkedIn URL are carried through; email/phone/portfolio are left out on purpose
+  with an explicit "do not invent" instruction, so a generated resume leaves them empty rather
+  than fabricating a value.
 - `import-master-resume.ts` refuses to import a resume that is suspiciously short, has no role
   headings, contains `TODO`, or has no ongoing role marked `Present`.
 - The import prints a summary only — the resume text never passes through a shell, an HTTP
@@ -367,7 +379,9 @@ node_modules/.bin/tsx scripts/import-master-resume.ts data/master_resume.md
    keywords/must-haves already extracted by the JD analysis) to Claude, which returns a
    **structured JSON** resume: `name`, `tagline`, `contact`, `professionalSummary`,
    `coreCompetencies` (technical/operations/leadership), `professionalExperience[]`,
-   `technicalProficiencies`, `certifications`. The model is instructed to use only facts from
+   `technicalProficiencies`, `education[]`, `certifications`. Education was missing from the
+   schema, so any education on the master resume was silently dropped from every generated
+   resume — it now renders in the preview, the DOCX and the PDF path. The model is instructed to use only facts from
    your master resume — it reorders and rephrases, it does not invent.
 2. **Store** — the JSON is saved to the `resumes` table (`type: "tailored"`, one row per
    generation, latest wins). `GET /api/jobs/[id]/resume` returns it; `PUT` saves hand-edits.

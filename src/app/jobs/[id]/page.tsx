@@ -87,6 +87,14 @@ interface ResumeStructure {
     bullets: string[];
   }[];
   technicalProficiencies: string[];
+  /** Optional: present only when the master resume carries education. */
+  education?: {
+    school: string;
+    credential?: string;
+    location?: string;
+    startDate?: string;
+    endDate?: string;
+  }[];
   certifications: string[];
 }
 
@@ -980,6 +988,7 @@ export default function JobDetailPage({
                           const experience = r.professionalExperience ?? [];
                           const techProf = r.technicalProficiencies ?? [];
                           const certs = r.certifications ?? [];
+                          const education = r.education ?? [];
                           return (
                           <div className="p-6 bg-white text-neutral-900 border rounded-lg space-y-4">
                           <div className="text-center">
@@ -1040,6 +1049,28 @@ export default function JobDetailPage({
                             <div>
                               <h2 className="text-base font-bold border-b pb-1">TECHNICAL PROFICIENCIES</h2>
                               <p className="text-sm mt-2">{techProf.join(", ")}</p>
+                            </div>
+                          )}
+
+                          {education.length > 0 && (
+                            <div>
+                              <h2 className="text-base font-bold border-b pb-1">EDUCATION</h2>
+                              <div className="mt-2 space-y-1 text-sm">
+                                {education.map((edu, i) => (
+                                  <div key={i} className="flex justify-between gap-4">
+                                    <span>
+                                      <strong>{edu.school}</strong>
+                                      {edu.credential ? ` — ${edu.credential}` : ""}
+                                      {edu.location ? ` · ${edu.location}` : ""}
+                                    </span>
+                                    {(edu.startDate || edu.endDate) && (
+                                      <span className="text-neutral-500 whitespace-nowrap">
+                                        {[edu.startDate, edu.endDate].filter(Boolean).join(" – ")}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
 

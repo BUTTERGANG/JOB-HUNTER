@@ -32,6 +32,18 @@ export interface ResumeStructure {
     bullets: string[];
   }[];
   technicalProficiencies: string[];
+  /**
+   * Education is optional and deliberately credential-neutral: a high-school
+   * entry is as valid here as a degree. It was missing entirely, so any education
+   * on the master resume was silently dropped from every generated resume.
+   */
+  education?: {
+    school: string;
+    credential?: string;
+    location?: string;
+    startDate?: string;
+    endDate?: string;
+  }[];
   certifications: string[];
 }
 
@@ -192,6 +204,32 @@ export function createDocxFromStructure(resume: ResumeStructure): Document {
         spacing: { after: 200 },
       })
     );
+  }
+
+  // EDUCATION section (before certifications, the conventional order)
+  const education = resume.education ?? [];
+  if (education.length > 0) {
+    children.push(
+      new Paragraph({
+        text: "EDUCATION",
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 100, after: 100 },
+      })
+    );
+    for (const edu of education) {
+      const dates = [edu.startDate, edu.endDate].filter(Boolean).join(" – ");
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: [edu.school, edu.credential, edu.location].filter(Boolean).join(" | "),
+            }),
+            ...(dates ? [new TextRun({ text: `  ${dates}`, size: 20 })] : []),
+          ],
+          spacing: { after: 50 },
+        })
+      );
+    }
   }
 
   // CERTIFICATIONS & ACHIEVEMENTS section

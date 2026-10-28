@@ -2,6 +2,33 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
+## 2026-10-27 — LinkedIn merged into the master resume; education added to the schema
+
+The work history had no education, no certifications, no location, and was missing a role that
+only exists on the LinkedIn profile.
+
+- **Education was missing from the resume schema entirely** — `ResumeStructure`, the tailor
+  prompt, the DOCX template and the job-detail preview all lacked it, so any education on the
+  master resume was silently dropped from every generated resume. Added end to end and verified
+  in the rendered DOCX (`EDUCATION`, school, credential and dates all present in the XML).
+- **A current role was missing.** Moran Academy for Strength and Speed (Olympic Lifting Coach,
+  2020-Present) is on LinkedIn but not in the spreadsheet, so the history looked like it stopped
+  in 2020 outside of two roles. Added.
+- **Dates and titles reconciled with LinkedIn** where it was more precise or more senior:
+  Meet Week Co. is `Executive Producer, 2022-2025` (was "Event Coordinator & Media Specialist,
+  2022-2024"), and Amazon is `2019-2020`. Locations per role added (the DOCX prints
+  `title | company | location`, so an empty location left a dangling separator).
+- **Certifications** added with issuer and stated dates. All three have passed expiry dates;
+  the prompt is told to show them exactly as issued and never extend a date, and the master
+  file says so explicitly.
+- **Contact**: location (Carmel, Indiana) and the LinkedIn URL are now carried through.
+  Email, phone and portfolio are deliberately absent with a "do not invent" instruction —
+  generated resumes leave them empty instead of fabricating values.
+- `import-master-resume.ts` now validates location presence and the no-invent instruction, and
+  counts roles by the `## Company — Title` pattern so section headings aren't miscounted.
+- Verified across two job descriptions: employers, dates, school and certifications all trace
+  back to the master resume; Mill Top reads `2022-Present`; no invented contact value.
+
 ## 2026-10-27 — Real master resume in place, and the tooling to keep it there
 
 The app had no master resume, so nothing could be tailored. The work history now lives in

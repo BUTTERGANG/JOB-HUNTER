@@ -82,6 +82,11 @@ Rules:
 - Use the job's exact terminology (if they say "Kubernetes", say "Kubernetes" not "K8s").
 - Keep employment dates, job titles, and company names unchanged.
 - Generate a role-specific tagline (2-4 words summarizing the role for this job).
+- Include education ONLY if it appears in the master resume. Do not add, upgrade or imply a
+  credential that is not there — a high-school entry is fine to show, and an absent education
+  section is better than an invented one.
+- Certifications: include only those present in the master resume. If a certification has an
+  expiry date that has passed, still list it as stated (do not silently renew or extend it).
 
 JSON Schema:
 {
@@ -111,7 +116,16 @@ JSON Schema:
     }
   ],
   "technicalProficiencies": ["array of technical skills"],
-  "certifications": ["array of certification strings"]
+  "education": [
+    {
+      "school": "string",
+      "credential": "string (e.g. 'High School Diploma', or the field of study)",
+      "location": "string",
+      "startDate": "string (e.g. '2012')",
+      "endDate": "string (e.g. '2016')"
+    }
+  ],
+  "certifications": ["array of certification strings, including the issuer and year if known"]
 }
 
 ## MASTER RESUME:

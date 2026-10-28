@@ -32,10 +32,9 @@ const content = fs.readFileSync(resumePath, "utf8");
 // ── Sanity checks: a resume that fails these would silently degrade every
 //    tailored resume generated from it. ─────────────────────────────────────────
 const problems: string[] = [];
-// The skills index is also an "## " heading — it is not a role.
-const roleHeadings = (content.match(/^## .+$/gm) ?? []).filter(
-  (h) => !/skills index/i.test(h)
-);
+// Roles are "## Company — Title" (em dash). The file also has plain "## Education",
+// "## Certifications" and similar section headings, which are not roles.
+const roleHeadings = (content.match(/^## .+$/gm) ?? []).filter((h) => h.includes("—"));
 if (content.trim().length < 500) problems.push("suspiciously short (<500 chars)");
 if (roleHeadings.length === 0) problems.push("no '## Role — Title' headings found");
 if (/TODO/i.test(content)) {
@@ -51,9 +50,17 @@ console.log(`characters:  ${content.length}`);
 console.log(`roles:       ${roleHeadings.length}`);
 for (const heading of roleHeadings.slice(0, 3)) console.log(`  ${heading}`);
 if (roleHeadings.length > 3) console.log(`  … and ${roleHeadings.length - 3} more`);
+const hasLinkedIn = /linkedin\.com\/in\//i.test(content);
+const hasLocation = /^Location:/im.test(content);
+const forbidsInvention = /do not invent/i.test(content);
 console.log(
-  `contact line: ${/contact details:/i.test(content) ? "present (values omitted by design)" : "absent"}`
+  `contact:     location=${hasLocation ? "yes" : "no"} linkedin=${hasLinkedIn ? "yes" : "no"} ` +
+    `no-invent instruction=${forbidsInvention ? "yes" : "no"}`
 );
+if (!hasLocation) problems.push("no location line — resumes will have an empty contact field");
+if (!forbidsInvention) {
+  problems.push("no 'do not invent' instruction for contact details");
+}
 
 if (problems.length) {
   console.error(`\nREFUSING TO IMPORT — ${problems.length} problem(s):`);
