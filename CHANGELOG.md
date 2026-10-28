@@ -8,9 +8,11 @@ All notable changes to JOB-HUNTER. Newest first.
   placeholder: web applications and data pipelines, 80+ repositories (39 public), representative
   projects named, infrastructure work, LLM integration. Every claim is verifiable against the
   public GitHub account — no revenue or client figures were invented.
-- **The start year is deliberately absent.** No source records it, and an undated current role
-  is better than a fabricated date on a document an employer may check. The converter says so
-  explicitly so the model leaves the start date blank.
+- **Dated `Aug 2026 – Present`.** The entity is roughly two months old, so the description says
+  "the practice spans 80+ repositories" rather than implying every repository was built inside
+  it — otherwise the dates and the numbers contradict each other. (An undated role previously
+  rendered as `Present – Present`; that bug is fixed and it now renders `– Present` when no
+  start year is known.)
 - **Fixed an undated-role rendering bug**: a role whose only date value is "Present" produced
   `Present – Present` in the generated resume, because the model put the same token in both
   fields. The master file now instructs it to leave the start date blank, and the output reads

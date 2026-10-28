@@ -136,15 +136,16 @@ EXTRA_ROWS: list[dict[str, str]] = [
         "Relevant For (Resume Type)": "Coaching, Operations",
     },
     {
-        # The software-development entity. The start year is NOT recorded in any
-        # source we have, so it is left out rather than guessed — an undated current
-        # role is better than a fabricated date on a document an employer will check.
-        "Year": "Present",
+        # The software-development entity, formed August 2026. Note the wording below:
+        # the entity is months old, so it must not read as though all 80+ repositories
+        # were built inside it. "the practice spans" keeps the claim accurate.
+        "Year": "Aug 2026-Present",
         "Company": "BUTTERFIELD LLC",
         "Position/Title": "Founder & Software Developer",
         "Responsibilities": (
-            "Design, build and ship web applications and data pipelines end to end across "
-            "80+ repositories, primarily TypeScript/Next.js front ends and Python back ends; "
+            "Design, build and ship web applications and data pipelines end to end, primarily "
+            "TypeScript/Next.js front ends and Python back ends; the practice spans 80+ "
+            "repositories (39 public); "
             "representative work includes an AI-driven job aggregation and resume generation "
             "platform, multi-source price-scraping and alerting tools, eBay-API comparison "
             "dashboards, and a portfolio site documenting 27 project case studies; operate the "
