@@ -2,6 +2,31 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
+## 2026-10-27 — Real master resume in place, and the tooling to keep it there
+
+The app had no master resume, so nothing could be tailored. The work history now lives in
+`data/master_resume.md` (gitignored) and is loaded into `resumes` (type `master`), which is
+what `getMasterResume()` and `/api/ai/tailor` read.
+
+- `scripts/work-history-to-resume.py` converts the work-history spreadsheet into the flat
+  master-resume text: every bullet, skill and achievement preserved, roles in reverse
+  chronological order, plus a de-duplicated skills index. It also writes a CSV and an
+  optionally corrected spreadsheet.
+- **The Mill Top is `2022-Present`, not `2022`.** The sheet listed a single year for a role
+  that is ongoing, which reads as ended experience to a ranker and to a human. Corrections
+  live in a `CORRECTIONS` table in the converter so a re-import can't silently drop them.
+- A `BUTTERFIELD LLC` row was added as a **TODO placeholder** — name, role and dates are facts
+  only the owner can supply. TODO-bearing rows are excluded from the resume text (kept in the
+  CSV/XLSX) so a stub can never be fed to the model as experience.
+- Contact details are deliberately absent from the master file and the prompt is told not to
+  invent them; the tailored output leaves those fields empty instead of fabricating an email.
+- `scripts/import-master-resume.ts` validates before writing (minimum length, role headings,
+  no TODOs, at least one ongoing role) and prints only a summary.
+- Verified: a tailored wedding-videographer resume selects the four relevant roles (LA Media,
+  COMPLETE Weddings + Events, Meet Week Co., The Mill Top), keeps Mill Top's end date as
+  `Present`, invents no employer or date, and leaves contact empty. DOCX export from the real
+  resume: 10.3 KB, valid container.
+
 ## 2026-10-27 — Pipeline verification pass: three real bugs, docs brought current
 
 Added `scripts/verify-pipeline.ts` — 23 stages against a running server, asserting on real

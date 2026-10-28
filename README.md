@@ -177,6 +177,8 @@ job-hunt-app/
 │   ├── scrape_jobs.py           # Python jobspy wrapper (keeps the quoted pay unit)
 │   ├── scrape_indiana.py        # Playwright scraper for WorkForIndiana
 │   ├── import-openrouter-key.ts # Import a key from the environment into settings
+│   ├── import-master-resume.ts  # Load a master resume file into settings (validated)
+│   ├── work-history-to-resume.py # Spreadsheet work history → master resume text
 │   ├── verify-ranking.ts        # Offline ranking checks (no API key needed)
 │   ├── verify-pipeline.ts       # End-to-end pipeline verification against a running app
 │   └── rank-probe.ts            # Live ranking probe over real scraped listings
@@ -331,6 +333,34 @@ This identity system is shared across scrape dedupe, import protection, and UI s
 On a job's detail page (`/jobs/[id]`), the **Resume Tailor** tab generates a resume tailored
 to that specific posting from your **master resume** (set in Settings) plus the job
 description.
+
+### Getting your history in
+
+The master resume is the single source of truth: the tailor reorders and rephrases what is
+there and is forbidden from inventing anything, so anything missing from it is missing from
+every generated resume.
+
+If your history lives in a spreadsheet (`Year | Company | Position/Title | Responsibilities |
+Skills Gained | Key Achievements/Metrics | Relevant For`), convert it:
+
+```bash
+.venv/bin/python3 scripts/work-history-to-resume.py \
+    --in ~/Downloads/Alex_Butterfield_Work_History_Master.xlsx \
+    --out-xlsx ~/Downloads/Alex_Butterfield_Work_History_Master_corrected.xlsx
+
+node_modules/.bin/tsx scripts/import-master-resume.ts data/master_resume.md
+```
+
+- Outputs `data/master_resume.md` + `data/work_history.csv` (both gitignored — **never commit
+  resume content to this public repo**) and optionally a corrected spreadsheet.
+- Corrections that would otherwise be lost on a re-import (an ongoing role marked with a single
+  year, for example) live in `CORRECTIONS` at the top of the script.
+- Rows containing `TODO` are **excluded from the resume text** but kept in the CSV/XLSX, so a
+  half-finished entry can't reach a generated resume as if it were experience.
+- `import-master-resume.ts` refuses to import a resume that is suspiciously short, has no role
+  headings, contains `TODO`, or has no ongoing role marked `Present`.
+- The import prints a summary only — the resume text never passes through a shell, an HTTP
+  body, or a log.
 
 ### How it works
 1. **Generate** — `POST /api/ai/tailor` sends your master resume + the JD (and any ATS

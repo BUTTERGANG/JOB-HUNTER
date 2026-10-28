@@ -377,8 +377,12 @@ Some college coursework, no degree.
     if (fs.existsSync(dbPath)) {
       const db = new Database(dbPath);
       const info = db
-        .prepare("DELETE FROM resumes WHERE type = 'tailored' AND content LIKE ?")
-        .run("%PLACEHOLDER RESUME%");
+        // Match the placeholder NAME as well as the marker text: the model rewrites
+        // the resume body, so the literal marker may not survive into the JSON.
+        .prepare(
+          "DELETE FROM resumes WHERE type = 'tailored' AND (content LIKE ? OR content LIKE ?)"
+        )
+        .run("%PLACEHOLDER RESUME%", "%Alex Example%");
       removedTailored = info.changes ?? 0;
       db.close();
     }
