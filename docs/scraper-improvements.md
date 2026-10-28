@@ -29,6 +29,35 @@ The Python interpreter is resolved at runtime (`src/lib/pythonBin.ts`):
 `python3` on PATH. A project `.venv` is the intended default; when the resolved interpreter
 cannot import `jobspy` the API says so explicitly instead of reporting 0 results.
 
+## Search yield — what actually determines how many listings you get (measured 2026-10-27)
+
+The pipeline found 3 listings for the whole Indianapolis market because **all four search
+levers were at their most restrictive setting**. Measured on Indeed, unique listings:
+
+| lever | restrictive | permissive | effect |
+|---|---|---|---|
+| **Term** | `photographer` → 3 | `photo` → 53 | ~17x |
+| **Distance** | 50 mi → 51 | 100 mi → 89 | +70% |
+| **Window** | 7 days → 51 | 30 days → 100 | ~2x |
+| **Result cap** | 25 | 200+ (the pool goes deeper) | 8x |
+
+Together: **3 unique listings → 225**, in 2.7 seconds. Re-measure any time with
+`scripts/measure-search-yield.py` (`--phase terms` / `--phase geo`, writes
+`data/search-yield.json`).
+
+Three findings that generalise:
+
+1. **Indeed ANDs the words in a phrase**, so a specific title matches almost nothing where a
+   short stem matches hundreds: `wedding photographer` **0**, `photographer` **3**,
+   `photo` **53**. Search broad; let the ranker narrow.
+2. **`distance` must be passed explicitly.** jobspy defaults it to 50 miles and the app never
+   sent it, so the default was silently in force on every run. It is now a validated control
+   (1–500) on both the manual and bulk scan forms, and recorded on `scrape_runs`.
+3. **`dj`, `wedding dj` and `event photographer` return zero.** That is a channel verdict, not
+   a search bug — the work is not posted on job boards. Broad terms bring ~17% on-target
+   titles plus noise, which the interest axis sorts for roughly 3 cents per 225 listings;
+   narrowing the search instead discards the good listings along with the bad.
+
 ## JobSpy limits (verified from source — `pip show -f python-jobspy`)
 
 - **Indeed** — fast, no built-in delay, mobile GraphQL API, pages 100 at a time, natural

@@ -2,6 +2,23 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
+## 2026-10-28 — Docs brought in line with reality, and the harness un-broken
+
+- **`verify-pipeline.ts` hardcoded `localhost:3002`**, so once the app became a service
+  bound to the Tailscale address it reported "cannot reach the server" against a perfectly
+  healthy app. It now auto-detects the server (BASE → localhost → this machine's Tailscale
+  address). Note it probes with `curl` rather than `fetch`: this repo's package.json has no
+  `"type": "module"`, so tsx emits CJS and a top-level `await` is a build error.
+- **README**: the "run it" section said port **3000**; it is 3002. Added a **Status** section
+  stating plainly what is built and what is not — batch resume generation and browser
+  auto-apply do not exist yet, and no search tuning reaches the wedding/DJ work because it is
+  not posted on job boards.
+- **`docs/scraper-improvements.md`**: added the measured search-yield table and the three
+  findings behind it (Indeed ANDs phrases; `distance` must be sent explicitly; the DJ/wedding
+  terms return zero because of the channel, not the query).
+- **`SCRUM/Sprint_View.md`**: was an untouched TBD stub; now reflects the sprint's actual
+  work, the backlog, and what is blocked and why.
+
 ## 2026-10-27 — Runs as a LaunchAgent on the mini, reachable over Tailscale
 
 `http://alexs-mac-mini:3002` from any tailnet device. Agent

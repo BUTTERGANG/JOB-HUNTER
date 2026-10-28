@@ -19,11 +19,16 @@
  * removed at the end, so it never masquerades as the real one.
  *
  * Run: node_modules/.bin/tsx scripts/verify-pipeline.ts
- *      BASE=http://localhost:3002 node_modules/.bin/tsx scripts/verify-pipeline.ts
+ *      BASE=http://100.x.x.x:3002 node_modules/.bin/tsx scripts/verify-pipeline.ts
+ *
+ * The server URL is auto-detected (BASE → localhost → this machine's Tailscale
+ * address), because as a service the app binds to the tailnet address and localhost
+ * does not answer.
  */
 
 import fs from "fs";
 import path from "path";
+import { execFileSync } from "node:child_process";
 import Database from "better-sqlite3";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- this harness consumes arbitrary JSON
@@ -31,7 +36,55 @@ import Database from "better-sqlite3";
    field into interfaces would add a lot of noise without adding safety to a verification
    script whose job is to observe what the app actually returns. */
 
-const BASE = process.env.BASE || "http://localhost:3002";
+/**
+ * Which server to test against.
+ *
+ * The app now runs as a LaunchAgent bound to this machine's Tailscale address, so
+ * localhost is usually NOT serving. Hardcoding localhost made this harness report
+ * "cannot reach the server" against a perfectly healthy service. Probe the
+ * candidates and use the first one that answers; BASE overrides everything.
+ */
+function responds(url: string): boolean {
+  // curl rather than fetch: this has to run synchronously at module load, and this
+  // repo's package.json has no "type": "module", so tsx emits CJS where top-level
+  // await is a build error.
+  try {
+    const code = execFileSync(
+      "/usr/bin/curl",
+      ["-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "4", `${url}/api/settings`],
+      { encoding: "utf8" }
+    ).trim();
+    return code === "200";
+  } catch {
+    return false;
+  }
+}
+
+function resolveBase(): string {
+  const candidates = [process.env.BASE, "http://localhost:3002", ...tailnetCandidates()].filter(
+    (c): c is string => Boolean(c)
+  );
+  for (const candidate of candidates) {
+    if (responds(candidate)) {
+      if (candidate !== candidates[0]) console.log(`Using server at ${candidate}\n`);
+      return candidate;
+    }
+  }
+  return candidates[0];
+}
+
+/** This machine's Tailscale address, if it has one. */
+function tailnetCandidates(): string[] {
+  try {
+    const out = execFileSync("/sbin/ifconfig", { encoding: "utf8" });
+    const match = out.match(/\b(100\.(?:6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.\d{1,3}\.\d{1,3})\b/);
+    return match ? [`http://${match[1]}:3002`] : [];
+  } catch {
+    return [];
+  }
+}
+
+const BASE = resolveBase();
 
 interface Stage {
   name: string;

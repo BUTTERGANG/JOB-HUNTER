@@ -73,13 +73,14 @@ dependencies the API now says so explicitly instead.
 For the WorkForIndiana government scraper, also install Playwright:
 `.venv/bin/pip install playwright && .venv/bin/playwright install chromium`
 
-### 3. Run the development server
+### 3. Run it
 
 ```bash
-npm run dev
+npm run dev          # development, http://localhost:3002
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+On the mini it runs as a service instead — see
+[Running it as a service](#running-it-as-a-service-on-a-home-server-tailscale).
 
 ### 4. Configure
 
@@ -90,6 +91,31 @@ Go to **Settings** and add:
 4. **Salary targets** (minimum, target, stretch)
 5. **Scheduled scrape** searches, sites, and frequency
 6. (Optional) **Scrape proxies** + session-pool size — strongly recommended before running the all-states Bulk Market Scan (see below)
+
+## Status
+
+Built and verified end to end (scrape → rank → persist → track → tailor → export):
+
+| capability | state |
+|---|---|
+| Multi-board scrape (jobspy: Indeed, LinkedIn, Google, ZipRecruiter, Glassdoor) | working; search settings measured and tuned |
+| AI ranking from the Target Profile | working; 228 listings scored in ~7 min, 0 errors |
+| Unit-aware pay + earnings-aware commitment rule | working; asserted offline by `verify-ranking.ts` |
+| Job tracking, market analysis, BLS wage benchmarks | working |
+| Resume: master + per-job tailoring + `.docx` export | working — **one job at a time, from the job page** |
+| Scheduled scrapes + Discord alerts | working |
+| Runs as a LaunchAgent on the mini, reachable over Tailscale | working |
+
+**Not built yet** — the gap between "a dashboard that finds and ranks jobs" and "identify
+jobs and generate resumes automatically":
+
+1. **Batch resume generation.** Tailoring works, but only one job at a time from
+   `/jobs/[id]`. Nothing walks the ranked list and produces resumes for the top N.
+2. **Auto-apply.** No browser automation exists. The intended approach is driving the
+   persistent Brave over CDP, reusing a single tab.
+3. **Vendor channels.** `dj`, `wedding dj` and `event photographer` return **zero** listings
+   on Indeed — that work is not posted on job boards at all. Thumbtack / GigSalad / The Knot
+   sourcing is where the wedding and live-event work lives, and none of it is implemented.
 
 ## Target Profile
 
