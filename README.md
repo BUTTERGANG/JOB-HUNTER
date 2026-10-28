@@ -366,9 +366,11 @@ node_modules/.bin/tsx scripts/import-master-resume.ts data/master_resume.md
 - Education and certifications are emitted as their own sections. Certifications keep their
   issuer and stated dates and are **never** silently renewed — an expired certification is
   shown as expired, or dropped, not extended.
-- Location and LinkedIn URL are carried through; email/phone/portfolio are left out on purpose
-  with an explicit "do not invent" instruction, so a generated resume leaves them empty rather
-  than fabricating a value.
+- Contact details (email, phone, location, LinkedIn, portfolio) are carried through and the
+  master file instructs the model to use them verbatim and invent nothing beyond them. If a
+  value is genuinely unknown it is left out with an explicit instruction rather than guessed.
+- A role with no recorded start year is emitted as `– Present` with an instruction to leave the
+  start date blank; it never renders as `Present – Present`.
 - `import-master-resume.ts` refuses to import a resume that is suspiciously short, has no role
   headings, contains `TODO`, or has no ongoing role marked `Present`.
 - The import prints a summary only — the resume text never passes through a shell, an HTTP

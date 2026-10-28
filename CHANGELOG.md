@@ -2,6 +2,25 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
+## 2026-10-27 — BUTTERFIELD LLC added, contact details in, undated-role rendering fixed
+
+- **BUTTERFIELD LLC** is now a real entry (`Founder & Software Developer`) rather than a
+  placeholder: web applications and data pipelines, 80+ repositories (39 public), representative
+  projects named, infrastructure work, LLM integration. Every claim is verifiable against the
+  public GitHub account — no revenue or client figures were invented.
+- **The start year is deliberately absent.** No source records it, and an undated current role
+  is better than a fabricated date on a document an employer may check. The converter says so
+  explicitly so the model leaves the start date blank.
+- **Fixed an undated-role rendering bug**: a role whose only date value is "Present" produced
+  `Present – Present` in the generated resume, because the model put the same token in both
+  fields. The master file now instructs it to leave the start date blank, and the output reads
+  `– Present`.
+- **Contact details** (email, phone, portfolio) are now carried through; the master file's
+  instruction changed from "these are omitted, do not invent them" to "use these exactly, invent
+  nothing beyond them". Verified: all five contact fields come back populated and matching.
+- Fidelity check extended to a **software-developer** job description, which confirms the LLC
+  surfaces for software roles; contact values are now asserted to match rather than to be empty.
+
 ## 2026-10-27 — LinkedIn merged into the master resume; education added to the schema
 
 The work history had no education, no certifications, no location, and was missing a role that

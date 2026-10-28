@@ -72,9 +72,19 @@ LOCATIONS: dict[str, str] = {
 
 # Facts transcribed from https://www.linkedin.com/in/alex-butterfield-7865a0204/
 # Anything not verifiable in either source stays out.
-LINKEDIN = {
-    "profile_url": "linkedin.com/in/alex-butterfield-7865a0204",
+# Contact block. These are real values supplied by the owner; the instruction in the
+# generated file is to use them verbatim and invent nothing beyond them.
+CONTACT = {
+    "email": "alex@alexbutterfield.com",
+    "phone": "301-247-9190",
+    "portfolio": "alexbutterfield.com",
     "location": "Carmel, Indiana",
+    "linkedin": "linkedin.com/in/alex-butterfield-7865a0204",
+}
+
+LINKEDIN = {
+    "profile_url": CONTACT["linkedin"],
+    "location": CONTACT["location"],
     "about": (
         "Experience in photography/videography, logistics, audio/visual event production and "
         "coordination, Olympic weightlifting and sports performance, liquidation services, "
@@ -126,16 +136,33 @@ EXTRA_ROWS: list[dict[str, str]] = [
         "Relevant For (Resume Type)": "Coaching, Operations",
     },
     {
-        "Year": "TODO: start year-Present",
+        # The software-development entity. The start year is NOT recorded in any
+        # source we have, so it is left out rather than guessed — an undated current
+        # role is better than a fabricated date on a document an employer will check.
+        "Year": "Present",
         "Company": "BUTTERFIELD LLC",
-        "Position/Title": "TODO: your role/title in the LLC",
+        "Position/Title": "Founder & Software Developer",
         "Responsibilities": (
-            "TODO: what the LLC does and what you do in it. Not on the spreadsheet yet — "
-            "fill this in and re-run, or edit it in Settings → Master Resume."
+            "Design, build and ship web applications and data pipelines end to end across "
+            "80+ repositories, primarily TypeScript/Next.js front ends and Python back ends; "
+            "representative work includes an AI-driven job aggregation and resume generation "
+            "platform, multi-source price-scraping and alerting tools, eBay-API comparison "
+            "dashboards, and a portfolio site documenting 27 project case studies; operate the "
+            "supporting infrastructure including self-hosted Docker services, Linux server "
+            "administration, Tailscale networking and headless browser automation; integrate "
+            "LLM providers for ranking, extraction and content generation features"
         ),
-        "Skills Gained": "TODO: business operations, entity/contract management, etc.",
-        "Key Achievements/Metrics": "TODO: revenue, client counts, or other metrics.",
-        "Relevant For (Resume Type)": "TODO: Photography, Operations, etc.",
+        "Skills Gained": (
+            "TypeScript, Next.js, React, Node.js, Python, REST API design, SQLite and Postgres "
+            "data modelling, LLM integration, Docker, Linux server administration, Tailscale, "
+            "Git and GitHub Actions, web scraping and browser automation, technical documentation"
+        ),
+        "Key Achievements/Metrics": (
+            "80+ repositories (39 public); built and shipped multiple full applications solo "
+            "from data acquisition through UI; maintains a public portfolio of 27 project "
+            "case studies"
+        ),
+        "Relevant For (Resume Type)": "Software, Operations",
     },
 ]
 
@@ -204,11 +231,14 @@ def to_markdown(rows: list[dict[str, str]], name: str) -> str:
     lines: list[str] = []
     lines.append(f"# {name} — Master Work History")
     lines.append("")
-    lines.append(f"Location: {LINKEDIN['location']}")
-    lines.append(f"LinkedIn: {LINKEDIN['profile_url']}")
+    lines.append(f"Email: {CONTACT['email']}")
+    lines.append(f"Phone: {CONTACT['phone']}")
+    lines.append(f"Location: {CONTACT['location']}")
+    lines.append(f"LinkedIn: {CONTACT['linkedin']}")
+    lines.append(f"Portfolio: {CONTACT['portfolio']}")
     lines.append(
-        "Email, phone and portfolio are NOT in this file. Do not invent them — leave those "
-        "contact fields empty in your output rather than making a value up."
+        "Use these contact details exactly as written. Do not invent, embellish or add any "
+        "contact detail that is not listed here."
     )
     lines.append("")
     lines.append("## In his own words (raw material for the professional summary)")
@@ -231,7 +261,16 @@ def to_markdown(rows: list[dict[str, str]], name: str) -> str:
         title = row.get("Position/Title", "").strip()
         year = row.get("Year", "").strip()
         lines.append(f"## {company} — {title}")
-        lines.append(f"Dates: {year}")
+        if year.strip().lower() == "present":
+            # A current role with no recorded start year. Say so explicitly so the
+            # model leaves the start date blank instead of echoing "Present" into
+            # both fields (which renders as "Present – Present").
+            lines.append(
+                "Dates: ongoing — start year not recorded. Leave the start date blank "
+                "rather than guessing or repeating \"Present\"."
+            )
+        else:
+            lines.append(f"Dates: {year}")
         if row.get("Location"):
             lines.append(f"Location: {row['Location']}")
         tags = row.get("Relevant For (Resume Type)", "").strip()
