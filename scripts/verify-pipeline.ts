@@ -15,8 +15,13 @@
  *   9. Dashboard aggregation
  *  10. Paste-a-posting analysis (extraction + ranking)
  *
- * The master resume used for stage 8 is a PLACEHOLDER written by this script and
- * removed at the end, so it never masquerades as the real one.
+ * Stage 8 needs a master resume, and it has to occupy the real 'master' slot because that
+ * is the only row /api/ai/tailor reads. So this script SNAPSHOTS whatever is there first,
+ * writes a placeholder, and RESTORES the snapshot at the end — then asserts the restore.
+ *
+ * It previously finished by setting masterResume to "", which is the same row the real
+ * resume lives in: every run silently destroyed it while reporting "placeholder resume
+ * removed". Never clear that field as cleanup.
  *
  * Run: node_modules/.bin/tsx scripts/verify-pipeline.ts
  *      BASE=http://100.x.x.x:3002 node_modules/.bin/tsx scripts/verify-pipeline.ts
@@ -106,6 +111,27 @@ interface ApiResult {
   status: number;
   json: any;
   raw: string;
+}
+
+/**
+ * Read the current master resume straight from SQLite.
+ *
+ * Deliberately not via the API: this must keep working even if the settings endpoint
+ * changes shape, and it is used to prove the restore actually happened.
+ */
+function readMasterResume(): string | null {
+  try {
+    const dbPath = path.resolve(process.cwd(), "data", "jobhunt.db");
+    if (!fs.existsSync(dbPath)) return null;
+    const db = new Database(dbPath, { readonly: true });
+    const row = db
+      .prepare("SELECT content FROM resumes WHERE type = 'master' ORDER BY created_at DESC LIMIT 1")
+      .get() as { content?: string } | undefined;
+    db.close();
+    return row?.content ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function api(method: string, path: string, body?: unknown, retries = 2): Promise<ApiResult> {
@@ -346,6 +372,10 @@ Wedding DJ & Event Photographer — 2019-Present
 EDUCATION
 Some college coursework, no degree.
 `;
+  // Snapshot the real master resume BEFORE it is overwritten. Restoring it is the only
+  // thing standing between this harness and destroying the user's resume.
+  const masterBefore = readMasterResume();
+
   const save = await api("PUT", "/api/settings", { masterResume: PLACEHOLDER });
   record("master resume saved", save.status === 200 && save.json?.success === true, `HTTP ${save.status}`);
 
@@ -423,7 +453,8 @@ Some college coursework, no degree.
   // The tailored rows are deleted directly through the SQLite file (there is no
   // delete endpoint for a single resume), matching only rows that contain this
   // script's marker so a real resume can never be caught by it.
-  const cleanup = await api("PUT", "/api/settings", { masterResume: "" });
+  // RESTORE, never clear: masterResume is the same row the real resume occupies.
+  const cleanup = await api("PUT", "/api/settings", { masterResume: masterBefore ?? "" });
   let removedTailored = 0;
   try {
     const dbPath = path.resolve(process.cwd(), "data", "jobhunt.db");
@@ -442,10 +473,16 @@ Some college coursework, no degree.
   } catch (e) {
     console.log(`        (could not clean tailored resumes: ${e instanceof Error ? e.message : e})`);
   }
+  // Assert the restore byte-for-byte. Without this the harness can quietly eat the real
+  // resume and still report success, which is exactly what it used to do.
+  const masterAfter = readMasterResume();
+  const restored = (masterBefore ?? "") === (masterAfter ?? "");
   record(
-    "placeholder resume removed",
-    cleanup.status === 200,
-    `master resume cleared; ${removedTailored} placeholder-derived tailored resume(s) deleted`
+    "master resume restored",
+    cleanup.status === 200 && restored,
+    masterBefore
+      ? `real master resume restored intact (${masterBefore.length} chars); ${removedTailored} placeholder-derived tailored resume(s) deleted`
+      : `no master resume existed beforehand; left empty; ${removedTailored} placeholder-derived tailored resume(s) deleted`
   );
 
   finish();
