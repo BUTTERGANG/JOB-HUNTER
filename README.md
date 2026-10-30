@@ -105,15 +105,17 @@ Built and verified end to end (scrape → rank → persist → track → tailor 
 | AI ranking from the Target Profile | working; 228 listings scored in ~7 min, 0 errors |
 | Unit-aware pay + earnings-aware commitment rule | working; asserted offline by `verify-ranking.ts` |
 | Job tracking, next steps, pipeline progress metrics, market analysis, BLS benchmarks | working |
-| Resume: master + per-job tailoring + `.docx` export | working — **one job at a time, from the job page** |
+| Resume: master, per-job tailoring, **arsenal with reuse**, `.docx` export | working — the library recommends an existing resume before you tailor a new one |
+| Security | tailnet-only binding, no app auth (see [docs/security.md](docs/security.md)); SSRF closed, DB `0600` |
 | Scheduled scrapes + Discord alerts | working |
 | Runs as a LaunchAgent on the mini, reachable over Tailscale | working |
 
 **Not built yet** — the gap between "a dashboard that finds and ranks jobs" and "identify
 jobs and generate resumes automatically":
 
-1. **Batch resume generation.** Tailoring works, but only one job at a time from
-   `/jobs/[id]`. Nothing walks the ranked list and produces resumes for the top N.
+1. **Batch resume generation.** Tailoring works one job at a time from `/jobs/[id]`, and the
+   arsenal now recommends an existing resume before a new one is made — but nothing walks the
+   ranked list and produces resumes for the top N automatically.
 2. **Auto-apply.** No browser automation exists. The intended approach is driving the
    persistent Brave over CDP, reusing a single tab.
 3. **Vendor channels.** `dj`, `wedding dj` and `event photographer` return **zero** listings
@@ -218,6 +220,9 @@ job-hunt-app/
 
 | Route | Method | Purpose |
 |---|---|---|
+| `/api/health` | GET | Health check (status + the client id rate limiting keys on) |
+| `/api/dashboard` | GET | Everything the dashboard renders: scrape stats, top jobs, pipeline, next steps, progress metrics |
+| `/api/ai/analyze` | POST | Rank a batch of listings through the configured provider |
 | `/api/scrape` | POST | Run a manual scrape |
 | `/api/scrape/scheduled` | GET | Get schedule config |
 | `/api/scrape/scheduled` | POST | Run scheduled scrape (with Discord alerts) |
@@ -237,6 +242,8 @@ job-hunt-app/
 | `/api/resumes/[id]/docx` | GET | Export any arsenal resume to Word |
 | `/api/jobs/[id]/steps` | GET/POST/PATCH | Next steps for a job + its stage history; add, complete, reopen or dismiss a step |
 | `/api/jobs/[id]/fetch-description` | POST | Fetch + extract a tracked job's posting text |
+| `/api/government-postings` | GET | List collected government postings |
+| `/api/government-postings/[id]` | GET/DELETE | One government posting |
 | `/api/government-postings/scrape` | POST | Scrape WorkForIndiana state postings |
 | `/api/admin/import-bls` | GET/POST | BLS OEWS wage data status / import |
 | `/api/ai/tailor` | POST | Generate a tailored resume (structured JSON) from the master resume + JD |
@@ -678,10 +685,28 @@ fallback when no key is stored, and `SCRAPE_PYTHON_BIN` overrides the scraper's 
 
 ## Scripts
 
+npm:
+
 - `npm run dev` — Start dev server with Turbopack
-- `npm run build` — Production build
+- `npm run build` — Production build (also the typecheck — see the note in Verifying)
 - `npm run start` — Run production build
 - `npm run lint` — ESLint
+
+`scripts/` — tools, beyond the verification harnesses listed under **Verifying**:
+
+| script | purpose |
+|---|---|
+| `serve-tailnet.mjs` | Runs the app as a service bound to the Tailscale address (see below) |
+| `scrape_jobs.py` | The jobspy wrapper the scrape routes shell out to |
+| `measure-search-yield.py` | Measures how many listings a term/radius/window returns |
+| `measure-search-relevance.py` | Scores a term by how many of its titles are actually this work |
+| `import-master-resume.ts` | Loads `data/master_resume.md` into the `resumes` table |
+| `work-history-to-resume.py` | Builds the master resume text from the work-history spreadsheet |
+| `import_bls.py` | Downloads and loads BLS OEWS wage data (called by `/api/admin/import-bls`) |
+| `scrape_indiana.py` | Playwright scraper for WorkForIndiana (called by the government-postings route) |
+| `backfill-pipeline-history.ts` | Seeds a stage event + first next step for jobs predating that feature |
+| `backfill-col-adjustment.ts` | One-off: recomputes cost-of-living-adjusted salaries for existing analyses |
+| `import-openrouter-key.ts` | Imports the provider key from the local env into settings |
 
 ## License
 

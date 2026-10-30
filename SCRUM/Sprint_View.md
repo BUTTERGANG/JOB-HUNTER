@@ -21,6 +21,17 @@
 | Docs: README search + service + status sections, CHANGELOG, scraper-improvements | 2026-10-28 |
 | Fix `verify-pipeline.ts` to find the service (it hardcoded `localhost:3002`) | 2026-10-28 |
 
+## Done (2026-10-30)
+
+| Task | Completed |
+|------|-----------|
+| Resume arsenal: library tab, recommendation (reuse / adapt / tailor), reuse with provenance | 2026-10-30 |
+| Matching logic + 50-check harness; three real bugs caught (craft terms, `dj` dropped, description swamping) | 2026-10-30 |
+| Keyword expansion measured for relevance, not volume; presets rebuilt | 2026-10-30 |
+| Silent-error audit: 7 classes fixed, incl. migrations that swallowed every failure | 2026-10-30 |
+| Security: assessment in `docs/security.md`, SSRF closed, DB `0600`, `npm audit` clean | 2026-10-30 |
+| Harnesses grown to nine, including fresh-database and SSRF guards | 2026-10-30 |
+
 ---
 
 ## In Progress
