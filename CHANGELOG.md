@@ -1,3 +1,29 @@
+## 2026-10-30 — Silent-error audit and cleanup
+
+A sweep for failures that do not announce themselves, plus a build-tracing warning. The full
+list, including what was left open, is in docs/decisions.md.
+
+- **Resume hand-edits no longer insert a new arsenal row** (they wiped the label, keywords and
+  provenance, and turned a reused resume back into an anonymous tailored one).
+- **All stored-JSON parsing is now tolerant** (`src/lib/json.ts`); six unguarded `JSON.parse`
+  calls meant one malformed row 500'd the endpoint reading it.
+- **Schema migrations only tolerate "already applied".** 36 `catch {}` blocks treated a locked
+  database and a typo'd column the same as a completed migration.
+- **Deleted dead code that looked alive:** `src/app/api/auth.ts` was a plain `.ts` file, so
+  that health check never existed; it was the only importer of `authMiddleware.ts`, which
+  duplicated `rateLimit.ts`'s `getClientIdentifier` byte-for-byte. Added a real
+  `GET /api/health`.
+- **Deleted my own dead exports**, and the dashboard's inlined copy of
+  `ACTIVE_INTERVIEW_STATUSES`.
+- **Surfaced two client-side silent failures**, one of which could lose work: a failed resume
+  load looked identical to "no resume" and invited re-tailoring over an existing one.
+- **Added `scripts/verify-fresh-db.ts`** (58 checks) — builds the schema from nothing and
+  asserts the DDL and the migrations agree, so a fresh install cannot silently lack a column.
+
+Verified: all six harnesses pass, build and ESLint clean, **no route returns 5xx on a bare GET**
+(32 routes swept), and a live end-to-end run (create → step → complete → metrics → recommend →
+reuse → hand-edit → DOCX → delete) passes, including deliberately corrupted JSON columns.
+
 # Changelog
 
 All notable changes to JOB-HUNTER. Newest first.

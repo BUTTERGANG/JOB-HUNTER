@@ -1,3 +1,53 @@
+## 2026-10-30 — Silent-error audit: what was fixed, and what is still open
+
+A sweep for failures that do not announce themselves. Fixed items are decisions; the open
+ones are recorded so they are not rediscovered as surprises.
+
+**Fixed**
+
+- **A hand-edit to a resume inserted a new row every save.** `PUT /api/jobs/[id]/resume` called
+  `saveTailoredResume`, which inserts — so each edit added an arsenal row stripped of its
+  label, keywords and provenance, and a *reused* resume silently became an anonymous
+  *tailored* one. Editing now updates the row attached to the job.
+- **Six unguarded `JSON.parse` calls on database columns.** `JSON.parse(analysis.keywords ||
+  "[]")` guards against NULL, not against malformed text, so one bad row 500'd the endpoint
+  that read it. All parsing of stored JSON now goes through `src/lib/json.ts`, which never
+  throws; three duplicate implementations were consolidated into it.
+- **36 migrations used `try { … } catch {}`.** A locked database, a read-only file or a typo'd
+  column all looked exactly like "already migrated", and the app then failed later somewhere
+  unrelated. Only a duplicate-column / already-exists error is tolerated now; anything else
+  throws naming the statement.
+- **`src/app/api/auth.ts` was never a route.** Next only serves `route.ts` from the App Router,
+  so that health check did not exist. It was also the sole importer of
+  `src/lib/authMiddleware.ts`, whose `getClientIdentifier` was byte-identical to
+  `rateLimit.ts`'s. Both deleted; a real `GET /api/health` added.
+- **The dashboard inlined the interview-status list** while `ACTIVE_INTERVIEW_STATUSES` sat
+  unimported — two sources of truth for one rule, free to drift. Now imported.
+- **Client-side silent failures.** The dashboard's post-action reload swallowed errors, so a
+  failed refresh looked like "the button did nothing". Worse, the job page treated a failed
+  resume load as "no resume" — inviting a fresh tailoring over a resume that was there all
+  along. Both now say so.
+- **Build tracing.** A dynamic `path.resolve` in `pythonBin.ts` made the bundler trace the
+  entire project (public folder included) into the server output; annotated with
+  `turbopackIgnore`.
+
+**Still open, deliberately**
+
+- **`listing_status_history` is written but never read.** Listing rechecks append history
+  rows; no UI or query surfaces them, though the README claims long-term trend analysis.
+  Either surface it on the job page or stop writing it.
+- **Remaining dead exports:** `getExistingTrackedJobIdentityKeys`, `getSocSectorPrefix`,
+  `TERMINAL_STATUSES`.
+- **`src/lib/db/migrate.ts`** is a standalone script referenced by no npm script, and it
+  duplicates what `ensureDb()` does.
+- **Unused UI components:** `sheet`, `tooltip`, `separator`, `dropdown-menu` (shadcn leftovers).
+- **`POST /api/jobs` returns 201 while other POSTs return 200.** Correct but inconsistent;
+  every client checks `res.ok`, so it is cosmetic.
+- **Refactor candidates, by value:** `src/lib/db/queries.ts` (~950 lines) mixes jobs, resumes,
+  steps, metrics and scrape concerns; `src/app/jobs/[id]/page.tsx` is ~1,250 lines with six
+  responsibilities; and three overlapping notions of "interview" (an active loop / a human
+  replied / reached an interview stage) are documented but still separate concepts.
+
 # Decisions
 
 Why things are the way they are, newest first. Each entry records the decision, the reason,

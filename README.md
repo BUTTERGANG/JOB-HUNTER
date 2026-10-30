@@ -385,7 +385,7 @@ recorded decision rather than a regression.
 
 ## Verifying
 
-Seven scripts, in increasing order of what they need. All of them assert on real rows and
+Eight scripts, in increasing order of what they need. All of them assert on real rows and
 real responses rather than on the code's intent.
 
 ```bash
@@ -401,20 +401,24 @@ node_modules/.bin/tsx scripts/verify-steps.ts
 #    the description-as-evidence rule, and that legacy markdown resumes are matchable.
 node_modules/.bin/tsx scripts/verify-resume-match.ts
 
-# 4. The arsenal against the real database: tailoring → recommending → reusing, then it
+# 4. Fresh install — builds the schema from nothing and asserts the DDL and the
+#    migrations agree, so a fresh database cannot silently lack a column.
+node_modules/.bin/tsx scripts/verify-fresh-db.ts
+
+# 5. The arsenal against the real database: tailoring → recommending → reusing, then it
 #    deletes everything it created.
 node_modules/.bin/tsx scripts/verify-arsenal.ts
 
-# 5. Ranking rules — units, the commitment rule, weight normalisation, penalty
+# 6. Ranking rules — units, the commitment rule, weight normalisation, penalty
 #    visibility, profile round-trips, and that no persona text survives in the prompt.
 node_modules/.bin/tsx scripts/verify-ranking.ts
 
-# 6. Live ranking — the real ranker through the configured provider, against the real
+# 7. Live ranking — the real ranker through the configured provider, against the real
 #    scraped listings plus off-profile controls; prints axes, pay unit, hours verdict,
 #    flags, penalties and notes.
 node_modules/.bin/tsx scripts/rank-probe.ts
 
-# 7. Whole pipeline against a running server — scrape → rank → persist → market analysis
+# 8. Whole pipeline against a running server — scrape → rank → persist → market analysis
 #    → import to tracker → listing recheck → resume JSON → DOCX → dashboard →
 #    paste-a-posting. Prints PASS/FAIL per stage, and auto-detects the server
 #    (BASE → localhost → this machine's Tailscale address).
