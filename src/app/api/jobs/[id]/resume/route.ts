@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTailoredResume, saveTailoredResume } from "@/lib/db/queries";
+import { getTailoredResume, saveTailoredResume, recommendResumeForJob } from "@/lib/db/queries";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
 async function GET_handler(
@@ -16,10 +16,30 @@ async function GET_handler(
   }
 
   const { id } = await params;
-  const resume = getTailoredResume(Number(id));
-  if (!resume) return Response.json(null, { headers: rateLimit.headers });
+  const jobId = Number(id);
+  const resume = getTailoredResume(jobId);
 
-  return Response.json({ content: resume.content }, { headers: rateLimit.headers });
+  // Returned alongside the resume because the detail page needs both: what this job
+  // currently has, and which existing resume in the arsenal would fit it better. One
+  // request instead of two, and the recommendation is what stops a fresh tailoring.
+  const recommendation = recommendResumeForJob(jobId)?.recommendation ?? null;
+
+  return Response.json(
+    {
+      content: resume?.content ?? null,
+      resume: resume
+        ? {
+            id: resume.id,
+            type: resume.type,
+            label: resume.label,
+            reuseCount: resume.reuseCount,
+            sourceResumeId: resume.sourceResumeId,
+          }
+        : null,
+      recommendation,
+    },
+    { headers: rateLimit.headers }
+  );
 }
 
 // Persist hand-edited résumé content so manual tweaks survive navigation.

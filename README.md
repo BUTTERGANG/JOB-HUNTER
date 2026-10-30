@@ -20,6 +20,7 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 - **Salary targeting** — Set minimum/target/stretch salaries; benchmark against BLS data
 - **Master resume** — Store your resume once; use it when tailoring applications
 - **AI resume tailoring** — Generate a job-specific resume from your master resume + the JD (structured JSON), preview it, hand-edit it, and export to Word (`.docx`)
+- **Resume arsenal** — every resume the app produces is collected in a **Resumes** tab. When you open a job, the app checks the library first and recommends one you already have (*reuse*, *light edit*, or *tailor fresh*) with the match score and the terms the posting asks for that the resume does not cover. Reusing attaches a copy to the job and increments the original's reuse count, so the resumes that earn their keep are visible. Matching reads the resume's own content, so the master resume works as a candidate with no setup
 - **Next steps, not a to-do list** — every tracked job carries exactly one actionable step, chosen from its status (Apply → Follow up → Send thank-you → Ask for timeline → Respond to offer). Tick it off and the next one is proposed automatically. Completing an "Apply" step also advances the job to applied and dates it, so the metrics below need no extra bookkeeping
 - **Progress you can measure** — every status change is appended to a stage history, so "how far did I get" survives a rejection: a rejection after an onsite still counts as having reached the onsite. The dashboard shows the funnel (applied → responded → interview → offer) with conversion rates, median days to first response, the furthest-stage-reached distribution, and applications grouped by the week they went out
 - **Listing availability detection** — Recheck a tracked job's original posting (per-job or bulk) to flag it `active` / `expired` / `unknown`; every check is logged to history for long-term trend analysis
@@ -231,6 +232,9 @@ job-hunt-app/
 | `/api/jobs/import` | POST | Bulk import from scrape results |
 | `/api/jobs/[id]` | GET/PATCH/DELETE | Job CRUD |
 | `/api/jobs/[id]/analysis` | POST | Re-analyze a job |
+| `/api/resumes` | GET | The resume arsenal: every resume, its source job and reuse count |
+| `/api/resumes/[id]` | PATCH/POST/DELETE | Rename · reuse for a job · delete |
+| `/api/resumes/[id]/docx` | GET | Export any arsenal resume to Word |
 | `/api/jobs/[id]/steps` | GET/POST/PATCH | Next steps for a job + its stage history; add, complete, reopen or dismiss a step |
 | `/api/jobs/[id]/fetch-description` | POST | Fetch + extract a tracked job's posting text |
 | `/api/government-postings/scrape` | POST | Scrape WorkForIndiana state postings |
@@ -381,7 +385,7 @@ recorded decision rather than a regression.
 
 ## Verifying
 
-Six scripts, in increasing order of what they need. All of them assert on real rows and
+Seven scripts, in increasing order of what they need. All of them assert on real rows and
 real responses rather than on the code's intent.
 
 ```bash
@@ -397,16 +401,20 @@ node_modules/.bin/tsx scripts/verify-steps.ts
 #    the description-as-evidence rule, and that legacy markdown resumes are matchable.
 node_modules/.bin/tsx scripts/verify-resume-match.ts
 
-# 4. Ranking rules — units, the commitment rule, weight normalisation, penalty
+# 4. The arsenal against the real database: tailoring → recommending → reusing, then it
+#    deletes everything it created.
+node_modules/.bin/tsx scripts/verify-arsenal.ts
+
+# 5. Ranking rules — units, the commitment rule, weight normalisation, penalty
 #    visibility, profile round-trips, and that no persona text survives in the prompt.
 node_modules/.bin/tsx scripts/verify-ranking.ts
 
-# 5. Live ranking — the real ranker through the configured provider, against the real
+# 6. Live ranking — the real ranker through the configured provider, against the real
 #    scraped listings plus off-profile controls; prints axes, pay unit, hours verdict,
 #    flags, penalties and notes.
 node_modules/.bin/tsx scripts/rank-probe.ts
 
-# 6. Whole pipeline against a running server — scrape → rank → persist → market analysis
+# 7. Whole pipeline against a running server — scrape → rank → persist → market analysis
 #    → import to tracker → listing recheck → resume JSON → DOCX → dashboard →
 #    paste-a-posting. Prints PASS/FAIL per stage, and auto-detects the server
 #    (BASE → localhost → this machine's Tailscale address).

@@ -2,7 +2,35 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
-## 2026-10-30 — Decision log, and the resume-arsenal matcher
+## 2026-10-30 — The resume arsenal, end to end
+
+Tailoring no longer means starting from scratch for every posting.
+
+- **Resumes tab** (`/resumes`) — every resume the app has produced, with its source job,
+  size, keywords and reuse count, plus rename, delete, download and "use for…".
+- **Recommendation on the job page** — the app checks the arsenal before you tailor: *reuse*,
+  *light edit*, or *tailor fresh*, with the match score, the reason, and the terms the posting
+  asks for that the resume does not cover. One click attaches an existing resume.
+- **Reuse attaches a copy** to the job and increments the original's reuse count, so the
+  existing detail page and DOCX export keep working unchanged and provenance is recorded.
+- **`GET /api/resumes/[id]/docx`** exports any arsenal resume, not just the one attached to a job.
+- **Schema**: `label`, `role_title`, `keywords`, `source_resume_id`, `reuse_count` on `resumes`
+  (idempotent ALTERs), and the tailor route now records the label and the ATS keywords it
+  wrote against, so new resumes land in the library ready to match.
+
+**The bug that would have made it useless:** description tokens were marked supplementary
+unconditionally, but every real posting repeats its own title in the body — so the title words
+were excluded from the coverage denominator and the core signal collapsed to nothing. Every
+job reported "too little text to match on" with a 2,000-character description. Fixed, with a
+regression test.
+
+**Verified:** `verify-resume-match.ts` 50/50 · `verify-arsenal.ts` 24/24 against the real DB
+(self-cleaning) · `tsc` and ESLint clean · the Resumes tab render-checked in Brave with real
+data. The job-page banner is verified at the API level (correct verdict, score and missing
+terms) but not visually confirmed — the shared Brave had zero tabs by then and CDP-created
+tabs get no renderer without a window.
+
+
 
 - **`docs/decisions.md`** — why things are the way they are, with what was rejected. Covers
   the resume arsenal, the harness that destroyed the master resume, no-XP, the stage-event

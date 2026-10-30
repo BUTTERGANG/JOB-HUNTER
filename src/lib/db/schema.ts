@@ -38,11 +38,21 @@ export const jobs = sqliteTable("jobs", {
 export const resumes = sqliteTable("resumes", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   jobId: integer("job_id").references(() => jobs.id, { onDelete: "cascade" }),
-  type: text("type").notNull(), // 'master' or 'tailored'
+  type: text("type").notNull(), // 'master' | 'tailored' | 'reused'
   content: text("content").notNull(),
   createdAt: text("created_at")
     .default(sql`(datetime('now'))`)
     .notNull(),
+  /** Human name for the arsenal, e.g. "Wedding videographer — Danbren". */
+  label: text("label"),
+  /** The role this resume targets, used for matching. */
+  roleTitle: text("role_title"),
+  /** JSON array of the ATS terms it was built around. */
+  keywords: text("keywords"),
+  /** Set when this row was reused from another resume, for provenance. */
+  sourceResumeId: integer("source_resume_id"),
+  /** How many times this resume has been reused for another job. */
+  reuseCount: integer("reuse_count").default(0),
 });
 
 export const analyses = sqliteTable("analyses", {
@@ -244,6 +254,7 @@ export const listingStatusHistory = sqliteTable("listing_status_history", {
   checkedAt: text("checked_at").notNull(),
 });
 
+export type ResumeRow = typeof resumes.$inferSelect;
 export type JobStep = typeof jobSteps.$inferSelect;
 export type NewJobStep = typeof jobSteps.$inferInsert;
 export type JobStageEvent = typeof jobStageEvents.$inferSelect;

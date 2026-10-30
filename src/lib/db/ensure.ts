@@ -52,6 +52,13 @@ export function ensureDb() {
   // The search radius is part of a run's configuration — without it a past run
   // cannot be reproduced, and yield differences look like noise.
   try { sqlite.exec("ALTER TABLE scrape_runs ADD COLUMN distance INTEGER"); } catch {}
+  // Arsenal metadata. Added as columns rather than a side table on existing databases so
+  // there is one place to read them from; new databases get them from the DDL above.
+  try { sqlite.exec("ALTER TABLE resumes ADD COLUMN label TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE resumes ADD COLUMN role_title TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE resumes ADD COLUMN keywords TEXT"); } catch {}
+  try { sqlite.exec("ALTER TABLE resumes ADD COLUMN source_resume_id INTEGER"); } catch {}
+  try { sqlite.exec("ALTER TABLE resumes ADD COLUMN reuse_count INTEGER DEFAULT 0"); } catch {}
   try { sqlite.exec("ALTER TABLE jobs ADD COLUMN listing_status TEXT DEFAULT 'unknown'"); } catch {}
   try { sqlite.exec("ALTER TABLE jobs ADD COLUMN listing_checked_at TEXT"); } catch {}
   // Create indexes (idempotent)

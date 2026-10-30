@@ -100,6 +100,26 @@ interface ResumeStructure {
 
 type TailoredResumeData = ResumeStructure | string;
 
+/** What the arsenal thinks of this job — see src/lib/resumeMatch.ts. */
+interface ResumeRecommendation {
+  verdict: "reuse" | "adapt" | "tailor";
+  reason: string;
+  best: {
+    id: number;
+    label: string;
+    match: { score: number; sharedTerms: string[]; missingTerms: string[] };
+  } | null;
+  alternatives: { id: number; label: string; match: { score: number } }[];
+}
+
+interface AttachedResume {
+  id: number;
+  type: string;
+  label: string | null;
+  reuseCount: number | null;
+  sourceResumeId: number | null;
+}
+
 function ScorePill({ value }: { value: number }) {
   const color = value >= 7
     ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800"
@@ -139,6 +159,9 @@ export default function JobDetailPage({
   const [fetchDescMsg, setFetchDescMsg] = useState<string | null>(null);
   const [checkingListing, setCheckingListing] = useState(false);
   const [tailorError, setTailorError] = useState<{ message: string; needsResume: boolean } | null>(null);
+  const [recommendation, setRecommendation] = useState<ResumeRecommendation | null>(null);
+  const [attachedResume, setAttachedResume] = useState<AttachedResume | null>(null);
+  const [reusing, setReusing] = useState(false);
 
   useEffect(() => {
     fetch(`/api/jobs/${id}`)
@@ -157,9 +180,28 @@ export default function JobDetailPage({
 
     fetch(`/api/jobs/${id}/resume`)
       .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data?.content) {
-          const content = data.content;
+      .then(applyResumePayload)
+      // Saved résumé is optional; a failure just means none is preloaded.
+      .catch(() => {});
+  }, [id]);
+
+  /**
+   * Fold a /api/jobs/[id]/resume payload into state.
+   *
+   * The recommendation is set even when there is no resume yet — a job with nothing
+   * attached is exactly when an existing resume should be offered.
+   */
+  function applyResumePayload(data: {
+    content?: string | null;
+    resume?: AttachedResume | null;
+    recommendation?: ResumeRecommendation | null;
+  } | null) {
+    if (!data) return;
+    if (data.resume !== undefined) setAttachedResume(data.resume ?? null);
+    if (data.recommendation !== undefined) setRecommendation(data.recommendation ?? null);
+    {
+      const content = data.content;
+      if (content) {
           // The DB always hands back content as a string. Parse it so that a
           // structured résumé is held in state as an OBJECT (matching what
           // tailorResume() produces) — the structured preview and Edit tab both
@@ -179,11 +221,33 @@ export default function JobDetailPage({
             setIsLegacyFormat(true);
           }
           setResumeDirty(false);
-        }
-      })
-      // Saved résumé is optional; a failure just means none is preloaded.
-      .catch(() => {});
-  }, [id]);
+      }
+    }
+  }
+
+  /** Attach an existing arsenal resume to this job instead of tailoring a new one. */
+  async function attachArsenalResume(resumeId: number) {
+    setReusing(true);
+    setTailorError(null);
+    try {
+      const res = await fetch(`/api/resumes/${resumeId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: Number(id) }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setTailorError({ message: json.error ?? "Could not reuse that resume.", needsResume: false });
+        return;
+      }
+      const refreshed = await fetch(`/api/jobs/${id}/resume`).then((r) => (r.ok ? r.json() : null));
+      applyResumePayload(refreshed);
+    } catch {
+      setTailorError({ message: "Network error — nothing was changed.", needsResume: false });
+    } finally {
+      setReusing(false);
+    }
+  }
 
   if (error) {
     return (
@@ -902,10 +966,66 @@ export default function JobDetailPage({
         </TabsContent>
 
         <TabsContent value="resume">
+          {/* The arsenal recommendation comes first: if a resume already covers this
+              posting, generating another one is wasted effort. */}
+          {recommendation && (
+            <Card
+              className={
+                recommendation.verdict === "tailor"
+                  ? "mb-4 border-border"
+                  : "mb-4 border-primary/30 bg-accent/30"
+              }
+            >
+              <CardContent className="pt-4">
+                {recommendation.best && recommendation.verdict !== "tailor" ? (
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+                        {recommendation.verdict === "reuse" ? "Reuse recommended" : "Close match — light edit"}
+                      </p>
+                      <p className="mt-1 text-sm">
+                        <span className="font-medium">{recommendation.best.label}</span>{" "}
+                        <span className="text-muted-foreground">
+                          — {recommendation.best.match.score}% of what this posting asks for
+                        </span>
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">{recommendation.reason}</p>
+                      {recommendation.best.match.missingTerms.length > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Not covered: {recommendation.best.match.missingTerms.slice(0, 6).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={reusing}
+                      onClick={() => attachArsenalResume(recommendation.best!.id)}
+                    >
+                      {reusing ? "Attaching…" : "Use this resume"}
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm">
+                      Nothing in the arsenal fits this posting well
+                      {recommendation.best
+                        ? ` (closest is ${recommendation.best.label} at ${recommendation.best.match.score}%)`
+                        : ""}
+                      .
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{recommendation.reason}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                <span>Tailored Resume</span>
+                <span>
+                  {attachedResume?.type === "reused" ? "Reused Resume" : "Tailored Resume"}
+                </span>
                 <div className="flex gap-2">
                   <Button
                     onClick={tailorResume}

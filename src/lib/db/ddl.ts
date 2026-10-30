@@ -37,6 +37,16 @@ export const SCHEMA_SQL = `
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- The arsenal metadata. Without these a resume is just a blob, so matching it to a new
+  -- posting would have nothing to work from except re-parsing its prose.
+  CREATE TABLE IF NOT EXISTS resume_meta (
+    resume_id  INTEGER PRIMARY KEY REFERENCES resumes(id) ON DELETE CASCADE,
+    label      TEXT,
+    role_title TEXT,
+    keywords   TEXT,
+    updated_at TEXT
+  );
+
   CREATE TABLE IF NOT EXISTS analyses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,

@@ -47,8 +47,17 @@ and to domain words, and it scored adjacent-but-relevant pairs as poorly as unre
 Also rejected: requiring hand-entered tags per resume before matching could work at all; the
 fingerprint is derived from content so the master works immediately.
 
-**Status.** Logic + 48-check harness done. Schema, API, library page and the recommendation
-surfaced on the job page are not built yet.
+**A bug that would have made the whole feature useless.** Description tokens were marked
+supplementary unconditionally — but every real posting repeats its own title in the body, so
+the title words were classified as supplementary, the coverage denominator excluded them, and
+the core signal collapsed to nothing. Every job reported "too little text to match on" despite
+having a 2,000-character description. Description tokens are now supplementary **only if they
+are not already core terms**, with a regression test.
+
+**Status.** Built: schema, queries, API, the Resumes tab, the recommendation on the job page,
+and the reuse action. Verified by `verify-resume-match.ts` (50 checks),
+`verify-arsenal.ts` (24 checks against the real database, self-cleaning), and a render check
+of the Resumes tab in Brave.
 
 ---
 

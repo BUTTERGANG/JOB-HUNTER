@@ -163,7 +163,19 @@ export function jobSignal(input: JobSignalInput): WeightedTerms {
   addTerms(out, input.role, 2);
   addTokenList(out, input.keywords, 3);
   addTokenList(out, input.interests, 2);
-  addTerms(out, input.description, 1, true);
+
+  // Description tokens are supplementary ONLY if they are not already core terms.
+  //
+  // Every real posting repeats its own title in the body, so marking description tokens
+  // unconditionally put the title words into the supplementary set — which the coverage
+  // denominator then excluded, collapsing the core signal to nothing. Every job looked
+  // like it had "too little text to match on" despite having a 2,000-character body.
+  const core = new Set(out.weights.keys());
+  for (const token of tokenize(input.description)) {
+    if (core.has(token)) continue;
+    out.supplementary.add(token);
+    out.weights.set(token, Math.max(out.weights.get(token) ?? 0, 1));
+  }
   return out;
 }
 

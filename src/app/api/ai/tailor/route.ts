@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMasterResume, saveTailoredResume, getAnalysis } from "@/lib/db/queries";
+import { getMasterResume, saveTailoredResume, getAnalysis, getJobById } from "@/lib/db/queries";
 import { chatComplete, extractJson, hasLlmKey, llmKeyHint, LlmError } from "@/lib/ai/llm";
 import { validateTailorRequest } from "@/lib/validation";
 import { aiRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
@@ -54,10 +54,14 @@ async function POST_handler(request: NextRequest) {
   // Fold in the intel we already gathered for this job (from the JD analysis), so
   // the tailored résumé front-loads the exact ATS terms the posting calls for.
   let intel = "";
+  // Hoisted out of the block below so the saved row can carry the same keywords it was
+  // written against — that is what makes the resume findable in the arsenal later.
+  let analysisKeywords: string[] = [];
   if (validation.data!.jobId) {
     const analysis = getAnalysis(validation.data!.jobId);
     if (analysis) {
       const keywords = parseJsonArray(analysis.keywords);
+      analysisKeywords = keywords;
       const mustHave = parseJsonArray(analysis.mustHave);
       const lines: string[] = [];
       if (keywords.length) lines.push(`ATS keywords to include where truthful: ${keywords.join(", ")}`);
@@ -167,18 +171,27 @@ ${validation.data!.description}${intel}`;
   // Parse the JSON object. Fences and surrounding prose are tolerated; a genuine
   // parse failure falls back to storing the raw markdown (legacy format).
   let resumeJson: Record<string, unknown>;
+  // Label the row so the arsenal reads like a library rather than a list of ids.
+  const jobId = validation.data!.jobId;
+  const job = jobId ? getJobById(jobId) : null;
+  const meta = {
+    label: job ? `${job.role} — ${job.company}` : null,
+    roleTitle: job?.role ?? null,
+    keywords: analysisKeywords,
+  };
+
   try {
     resumeJson = extractJson<Record<string, unknown>>(text, "object");
   } catch {
     // Fallback: return raw markdown if JSON parsing fails (backward compatible)
-    if (validation.data!.jobId) {
-      saveTailoredResume(validation.data!.jobId, text);
+    if (jobId) {
+      saveTailoredResume(jobId, text, meta);
     }
     return Response.json({ content: text, isLegacy: true }, { headers: rateLimit.headers });
   }
 
-  if (validation.data!.jobId) {
-    saveTailoredResume(validation.data!.jobId, JSON.stringify(resumeJson));
+  if (jobId) {
+    saveTailoredResume(jobId, JSON.stringify(resumeJson), meta);
   }
 
   return Response.json({ content: resumeJson }, { headers: rateLimit.headers });

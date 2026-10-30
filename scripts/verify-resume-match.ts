@@ -72,6 +72,25 @@ function eq<T>(name: string, actual: T, expected: T) {
     `got: ${[...noisy.weights.keys()].join(", ")}`
   );
 
+  // A description that repeats the title must NOT turn the title into supplementary text.
+  // Every real posting does this; getting it wrong collapsed the core signal to zero and
+  // made every job report "too little text to match on".
+  const repeating = jobSignal({
+    role: "Wedding Videographer",
+    description: "We are hiring a Wedding Videographer. The Wedding Videographer will shoot weddings.",
+  });
+  const repeatingCore = [...repeating.weights.entries()].filter(([term]) => !repeating.supplementary.has(term));
+  check(
+    "a description repeating the title leaves the title as core signal",
+    repeatingCore.length > 0 && repeatingCore.some(([term]) => term === "wedding"),
+    `core: ${repeatingCore.map(([t]) => t).join(", ")} | supplementary: ${[...repeating.supplementary].join(", ")}`
+  );
+  check(
+    "…and the match still works",
+    matchResumeToJob(repeating, resumeSignal({ roleTitle: "Wedding Videographer" })).verdict === "reuse",
+    `score ${matchResumeToJob(repeating, resumeSignal({ roleTitle: "Wedding Videographer" })).score}`
+  );
+
   // A long description must not be able to drag a same-vertical job below the reuse
   // threshold — it is supporting evidence, not part of the coverage denominator.
   const filler = Array.from({ length: 120 }, (_, i) => `fillerterm${i}`).join(" ");

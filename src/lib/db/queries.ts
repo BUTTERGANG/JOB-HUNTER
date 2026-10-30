@@ -7,6 +7,8 @@ import { ensureDb } from "./ensure";
 import { getJobIdentityKey, type JobIdentityInput } from "../jobIdentity";
 import { parseTargetProfile, PROFILE_SETTING_KEY, type TargetProfile } from "../profile";
 import { computePipelineMetrics, proposeNextStep, stageLabel } from "../pipeline";
+import { interestHits } from "../match";
+import { candidateFromResumeRow, recommendResume, type ResumeCandidate } from "../resumeMatch";
 
 export interface BLSWageData {
   occTitle: string;
@@ -410,13 +412,177 @@ export function getTailoredResume(jobId: number) {
     .get();
 }
 
-export function saveTailoredResume(jobId: number, content: string) {
+export interface ResumeMeta {
+  label?: string | null;
+  roleTitle?: string | null;
+  keywords?: string[] | null;
+  type?: "tailored" | "reused";
+  sourceResumeId?: number | null;
+}
+
+export function saveTailoredResume(jobId: number, content: string, meta: ResumeMeta = {}) {
   const d = getDb();
   return d
     .insert(resumes)
-    .values({ jobId, type: "tailored", content })
+    .values({
+      jobId,
+      type: meta.type ?? "tailored",
+      content,
+      label: meta.label ?? null,
+      roleTitle: meta.roleTitle ?? null,
+      keywords: meta.keywords ? JSON.stringify(meta.keywords) : null,
+      sourceResumeId: meta.sourceResumeId ?? null,
+      reuseCount: 0,
+    })
     .returning()
     .get();
+}
+
+// ── Resume arsenal ──────────────────────────────────────────────────────────
+
+/** Every resume in the arsenal, newest first, with the job it was built for. */
+export function listResumes() {
+  const d = getDb();
+  const rows = d
+    .select({
+      id: resumes.id,
+      jobId: resumes.jobId,
+      type: resumes.type,
+      label: resumes.label,
+      roleTitle: resumes.roleTitle,
+      keywords: resumes.keywords,
+      sourceResumeId: resumes.sourceResumeId,
+      reuseCount: resumes.reuseCount,
+      createdAt: resumes.createdAt,
+      chars: sql<number>`length(${resumes.content})`,
+      company: jobs.company,
+      jobRole: jobs.role,
+    })
+    .from(resumes)
+    .leftJoin(jobs, eq(jobs.id, resumes.jobId))
+    .orderBy(desc(resumes.createdAt))
+    .all();
+
+  // Derive a display name for rows that predate the label column, so the arsenal never
+  // shows a bare id. Stored labels still win — this is only a fallback.
+  return rows.map((row) => ({
+    ...row,
+    label:
+      row.label ??
+      (row.type === "master"
+        ? "Master resume"
+        : row.jobRole && row.company
+          ? `${row.jobRole} — ${row.company}`
+          : `Resume #${row.id}`),
+  }));
+}
+
+export function getResumeById(id: number) {
+  const d = getDb();
+  return d.select().from(resumes).where(eq(resumes.id, id)).get();
+}
+
+export function renameResume(id: number, label: string) {
+  const d = getDb();
+  return d.update(resumes).set({ label }).where(eq(resumes.id, id)).returning().get();
+}
+
+export function deleteResume(id: number) {
+  const d = getDb();
+  return d.delete(resumes).where(eq(resumes.id, id)).run();
+}
+
+function parseKeywordList(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The arsenal as matching candidates.
+ *
+ * `excludeJobId` drops the resume already attached to the job being matched — recommending
+ * "the one you just generated for this very posting" is never useful.
+ */
+export function getArsenalCandidates(excludeJobId?: number): ResumeCandidate[] {
+  return listResumes()
+    .filter((row) => !(excludeJobId != null && row.jobId === excludeJobId))
+    .map((row) => {
+      const full = getResumeById(row.id);
+      if (!full) return null;
+      return candidateFromResumeRow({
+        id: full.id,
+        type: full.type,
+        label: full.label,
+        roleTitle: full.roleTitle,
+        keywords: full.keywords,
+        content: full.content,
+      });
+    })
+    .filter((c): c is ResumeCandidate => c !== null);
+}
+
+/**
+ * Which resume you already have fits this job, and does it warrant a fresh tailoring.
+ *
+ * The job's own ATS keywords come from the `analyses` row when one exists; in practice that
+ * table is usually empty, so the title and description carry the signal.
+ */
+export function recommendResumeForJob(jobId: number) {
+  const job = getJobById(jobId);
+  if (!job) return null;
+
+  const analysis = getAnalysis(jobId);
+  const keywords = parseKeywordList(analysis?.keywords);
+  const profile = getTargetProfile();
+  const hits = interestHits([job.role, job.description].filter(Boolean).join(" "), profile);
+  const candidates = getArsenalCandidates(jobId);
+
+  const recommendation = recommendResume(
+    {
+      role: job.role,
+      company: job.company,
+      keywords,
+      interests: hits,
+      description: job.description,
+    },
+    candidates
+  );
+
+  return { jobId, candidateCount: candidates.length, recommendation };
+}
+
+/**
+ * Attach an existing resume to a job instead of tailoring a new one.
+ *
+ * Copies the content rather than pointing at it, because `getTailoredResume(jobId)` reads
+ * the newest row for the job and the DOCX export renders from that row — so a copy keeps
+ * both working with no changes, and records provenance via sourceResumeId.
+ */
+export function reuseResumeForJob(jobId: number, resumeId: number) {
+  const d = getDb();
+  const source = getResumeById(resumeId);
+  if (!source) return null;
+
+  const copy = saveTailoredResume(jobId, source.content, {
+    type: "reused",
+    label: source.label ?? source.roleTitle ?? `Resume #${source.id}`,
+    roleTitle: source.roleTitle,
+    keywords: parseKeywordList(source.keywords),
+    sourceResumeId: source.id,
+  });
+
+  // Count reuses on the ORIGINAL, so the library can show which resumes earn their keep.
+  d.update(resumes)
+    .set({ reuseCount: (source.reuseCount ?? 0) + 1 })
+    .where(eq(resumes.id, source.id))
+    .run();
+
+  return copy;
 }
 
 // --- Analyses ---

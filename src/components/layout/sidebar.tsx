@@ -4,21 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
-import {
-  LayoutDashboard,
-  Briefcase,
-  PlusCircle,
-  BarChart3,
-  Search,
-  FileSearch,
-  Landmark,
-  PieChart,
-  Upload,
-  Settings,
-  Sun,
-  Moon,
-  type LucideIcon,
-} from "lucide-react";
+import { BarChart3, Briefcase, FileSearch, FileText, Landmark, LayoutDashboard, Moon, PieChart, PlusCircle, Search, Settings, Sun, Upload, type LucideIcon } from "lucide-react";
 
 const navGroups: { label: string; items: { href: string; label: string; icon: LucideIcon }[] }[] = [
   {
@@ -28,12 +14,14 @@ const navGroups: { label: string; items: { href: string; label: string; icon: Lu
       { href: "/jobs", label: "Jobs", icon: Briefcase },
       { href: "/jobs/new", label: "Add Job", icon: PlusCircle },
       { href: "/jobs/compare", label: "Compare", icon: BarChart3 },
+      { href: "/resumes", label: "Resumes", icon: FileText },
     ],
   },
   {
     label: "Intelligence",
     items: [
-      { href: "/scrape", label: "Scrape", icon: Search },
+      { href: "/resumes", label: "Resumes", icon: FileText },
+  { href: "/scrape", label: "Scrape", icon: Search },
       { href: "/analyze", label: "Analyze Job", icon: FileSearch },
       { href: "/government-postings", label: "Government Postings", icon: Landmark },
       { href: "/analysis", label: "Market Analysis", icon: PieChart },
