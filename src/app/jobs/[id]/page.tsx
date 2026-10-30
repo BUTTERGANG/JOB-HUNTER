@@ -162,6 +162,7 @@ export default function JobDetailPage({
   const [recommendation, setRecommendation] = useState<ResumeRecommendation | null>(null);
   const [attachedResume, setAttachedResume] = useState<AttachedResume | null>(null);
   const [reusing, setReusing] = useState(false);
+  const [resumeLoadError, setResumeLoadError] = useState("");
 
   useEffect(() => {
     fetch(`/api/jobs/${id}`)
@@ -179,10 +180,18 @@ export default function JobDetailPage({
       .catch(() => {});
 
     fetch(`/api/jobs/${id}/resume`)
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => {
+        // A failed load used to look identical to "this job has no resume" — the box came up
+        // empty, so the obvious next move was to generate one, silently replacing a resume
+        // that was there all along. Failures now say so.
+        if (!r.ok) {
+          setResumeLoadError(`Could not load the saved resume (HTTP ${r.status}).`);
+          return null;
+        }
+        return r.json();
+      })
       .then(applyResumePayload)
-      // Saved résumé is optional; a failure just means none is preloaded.
-      .catch(() => {});
+      .catch(() => setResumeLoadError("Could not load the saved resume — network error."));
   }, [id]);
 
   /**
@@ -966,6 +975,13 @@ export default function JobDetailPage({
         </TabsContent>
 
         <TabsContent value="resume">
+          {resumeLoadError && (
+            <p className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {resumeLoadError} Do not generate a new one until this is resolved — an existing
+              resume for this job may not be showing.
+            </p>
+          )}
+
           {/* The arsenal recommendation comes first: if a resume already covers this
               posting, generating another one is wasted effort. */}
           {recommendation && (

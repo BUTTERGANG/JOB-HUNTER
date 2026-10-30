@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonStringArray } from "@/lib/json";
 import { getAnalysis } from "@/lib/db/queries";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
@@ -20,12 +21,12 @@ async function GET_handler(
   if (!analysis) return Response.json(null, { headers: rateLimit.headers });
 
   return Response.json({
-    keywords: JSON.parse(analysis.keywords || "[]"),
+    keywords: parseJsonStringArray(analysis.keywords),
     fitScore: analysis.fitScore ?? 0,
-    redFlags: JSON.parse(analysis.redFlags || "[]"),
-    mustHave: JSON.parse(analysis.mustHave || "[]"),
-    niceToHave: JSON.parse(analysis.niceToHave || "[]"),
-    questions: JSON.parse(analysis.questions || "[]"),
+    redFlags: parseJsonStringArray(analysis.redFlags),
+    mustHave: parseJsonStringArray(analysis.mustHave),
+    niceToHave: parseJsonStringArray(analysis.niceToHave),
+    questions: parseJsonStringArray(analysis.questions),
   }, { headers: rateLimit.headers });
 }
 

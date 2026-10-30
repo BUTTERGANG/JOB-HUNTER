@@ -6,9 +6,10 @@ import type { JobAnalysisResult } from "../ai/analyzeJobs";
 import { ensureDb } from "./ensure";
 import { getJobIdentityKey, type JobIdentityInput } from "../jobIdentity";
 import { parseTargetProfile, PROFILE_SETTING_KEY, type TargetProfile } from "../profile";
-import { computePipelineMetrics, proposeNextStep, stageLabel } from "../pipeline";
+import { computePipelineMetrics, proposeNextStep } from "../pipeline";
 import { interestHits } from "../match";
 import { candidateFromResumeRow, recommendResume, type ResumeCandidate } from "../resumeMatch";
+import { parseJsonStringArray } from "../json";
 
 export interface BLSWageData {
   occTitle: string;
@@ -347,10 +348,6 @@ export function getPipelineMetrics() {
   return computePipelineMetrics(allJobs, events);
 }
 
-/** Human-readable one-liner for a stage, used by the timeline UI. */
-export function describeStage(status: string): string {
-  return stageLabel(status);
-}
 
 export function deleteJob(id: number) {
   const d = getDb();
@@ -482,6 +479,18 @@ export function getResumeById(id: number) {
   return d.select().from(resumes).where(eq(resumes.id, id)).get();
 }
 
+/**
+ * Overwrite a resume's content in place.
+ *
+ * Hand-editing used to call saveTailoredResume, which INSERTS — so every edit added another
+ * row to the arsenal, and the new row lost its label, role title, keywords and (for a reused
+ * resume) its provenance. Editing now updates the row that is actually attached to the job.
+ */
+export function updateResumeContent(id: number, content: string) {
+  const d = getDb();
+  return d.update(resumes).set({ content }).where(eq(resumes.id, id)).returning().get();
+}
+
 export function renameResume(id: number, label: string) {
   const d = getDb();
   return d.update(resumes).set({ label }).where(eq(resumes.id, id)).returning().get();
@@ -492,15 +501,8 @@ export function deleteResume(id: number) {
   return d.delete(resumes).where(eq(resumes.id, id)).run();
 }
 
-function parseKeywordList(value: string | null | undefined): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
+/** Local alias for the shared tolerant parser — see src/lib/json.ts. */
+const parseKeywordList = parseJsonStringArray;
 
 /**
  * The arsenal as matching candidates.

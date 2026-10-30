@@ -169,6 +169,7 @@ export default function DashboardPage() {
   const [backfill, setBackfill] = useState<BackfillStatus | null>(null);
   const [backfillStarting, setBackfillStarting] = useState(false);
   const [backfillError, setBackfillError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState("");
 
   useEffect(() => {
     fetch("/api/dashboard")
@@ -249,10 +250,19 @@ export default function DashboardPage() {
   // Completing a step can advance a job's status, so re-read the whole dashboard rather
   // than patching state locally — the pipeline counts and metrics move with it.
   function refresh() {
+    // A silent failure here is worse than a visible one: ticking a step off advances the job
+    // and re-reads the whole dashboard, so swallowing the error leaves a stale list that
+    // looks like the action did nothing.
     fetch("/api/dashboard")
-      .then((r) => r.json())
-      .then(setData)
-      .catch(() => {});
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d) => {
+        setData(d);
+        setRefreshError("");
+      })
+      .catch(() => setRefreshError("That worked, but the dashboard could not reload. Refresh the page to see it."));
   }
   const hasScrapedData = scrape.total > 0;
 
@@ -273,6 +283,12 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {refreshError && (
+        <p className="rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm text-orange-800">
+          {refreshError}
+        </p>
+      )}
 
       {/* ── Next steps: the first thing on the page, because it is the only part
              that asks you to do something ── */}

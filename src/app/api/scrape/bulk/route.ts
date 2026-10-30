@@ -6,10 +6,23 @@ import { validateBulkScanConfig } from "@/lib/validation";
 import { bulkScanRateLimiter, generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
 function serialize(row: BulkRunRow) {
+  // A malformed progress blob must not 500 the status endpoint — but it should not vanish
+  // either, so the parse failure is surfaced where the UI already shows run errors.
   let progress: BulkRunProgress = { errors: [] };
-  try {
-    if (row.progress) progress = JSON.parse(row.progress);
-  } catch {}
+  if (row.progress) {
+    try {
+      progress = JSON.parse(row.progress);
+    } catch {
+      progress = {
+        errors: [
+          {
+            state: "stored-progress",
+            error: `Saved progress for this run was unreadable and has been ignored.`,
+          },
+        ],
+      };
+    }
+  }
   return {
     runId: row.id,
     status: row.status,

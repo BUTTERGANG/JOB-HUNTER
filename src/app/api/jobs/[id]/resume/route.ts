@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTailoredResume, saveTailoredResume, recommendResumeForJob } from "@/lib/db/queries";
+import {
+  getJobById,
+  getTailoredResume,
+  saveTailoredResume,
+  updateResumeContent,
+  recommendResumeForJob,
+} from "@/lib/db/queries";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
 async function GET_handler(
@@ -57,12 +63,27 @@ async function PUT_handler(
   }
 
   const { id } = await params;
+  const jobId = Number(id);
   const body = await request.json().catch(() => ({}));
   if (typeof body.content !== "string" || !body.content.trim()) {
     return Response.json({ error: "content is required" }, { status: 400, headers: rateLimit.headers });
   }
-  saveTailoredResume(Number(id), body.content);
-  return Response.json({ ok: true }, { headers: rateLimit.headers });
+
+  // Update the attached resume rather than inserting a new one. Inserting on every save was
+  // spawning a fresh arsenal row per hand-edit, each one stripped of its label, keywords and
+  // provenance — so a reused resume silently became an anonymous tailored one.
+  const existing = getTailoredResume(jobId);
+  if (existing) {
+    const updated = updateResumeContent(existing.id, body.content);
+    return Response.json({ ok: true, resume: updated }, { headers: rateLimit.headers });
+  }
+
+  const job = getJobById(jobId);
+  const created = saveTailoredResume(jobId, body.content, {
+    label: job ? `${job.role} — ${job.company}` : null,
+    roleTitle: job?.role ?? null,
+  });
+  return Response.json({ ok: true, resume: created }, { headers: rateLimit.headers });
 }
 
 export const GET = GET_handler;

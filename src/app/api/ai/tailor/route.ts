@@ -3,16 +3,10 @@ import { getMasterResume, saveTailoredResume, getAnalysis, getJobById } from "@/
 import { chatComplete, extractJson, hasLlmKey, llmKeyHint, LlmError } from "@/lib/ai/llm";
 import { validateTailorRequest } from "@/lib/validation";
 import { aiRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
+import { parseJsonStringArray } from "@/lib/json";
 
-function parseJsonArray(value: string | null | undefined): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
+/** Local alias for the shared tolerant parser — see src/lib/json.ts. */
+const parseJsonArray = parseJsonStringArray;
 
 async function POST_handler(request: NextRequest) {
   // Rate limiting

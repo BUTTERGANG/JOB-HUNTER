@@ -54,6 +54,16 @@ export const SITES: { id: string; label: string }[] = [
 export const FOLLOW_UP_DAYS = 10;
 export const SCORE_THRESHOLD_HIGH = 18;
 export const SCORE_THRESHOLD_MID = 14;
+/**
+ * Statuses that mean an interview loop is IN PROGRESS right now.
+ *
+ * Deliberately distinct from two similar-sounding concepts:
+ *  - `RESPONSE_STAGES` (pipeline.ts) — a human replied at all; includes "offer", which is
+ *    an outcome rather than an active loop.
+ *  - `INTERVIEW_STAGES` (pipeline.ts) — how far you got; excludes "phone_screen" because
+ *    that metric answers "did this reach a real interview stage".
+ * The dashboard used to inline this array instead of importing it, so the two could drift.
+ */
 export const ACTIVE_INTERVIEW_STATUSES = ["phone_screen", "technical", "onsite"] as const;
 export const TERMINAL_STATUSES = ["rejected", "ghosted", "withdrew"] as const;
 

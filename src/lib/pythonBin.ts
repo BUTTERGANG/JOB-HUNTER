@@ -41,6 +41,7 @@ export interface PythonResolution {
 
 /** Cheap synchronous check that a candidate path is an executable file. */
 function isExecutable(p: string): boolean {
+  // Every caller passes a resolved interpreter path, not a bundled asset.
   try {
     fs.accessSync(p, fs.constants.X_OK);
     return fs.statSync(p).isFile();
@@ -62,7 +63,11 @@ export function resolvePythonBin(): PythonResolution {
 
   for (const dir of VENV_CANDIDATES) {
     for (const rel of [path.join("bin", "python3"), path.join("bin", "python")]) {
-      const candidate = path.resolve(process.cwd(), dir, rel);
+      // turbopackIgnore: `dir` is dynamic, and without this the bundler cannot see where
+      // the read lands, so it traces the ENTIRE project (public folder included) into the
+      // server output. This is a local filesystem lookup for an interpreter, nothing to do
+      // with the bundle.
+      const candidate = path.resolve(/* turbopackIgnore: true */ process.cwd(), dir, rel);
       if (isExecutable(candidate)) {
         return { bin: candidate, source: "venv", hasJobspy: null };
       }

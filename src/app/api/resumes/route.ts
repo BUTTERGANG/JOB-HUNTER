@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listResumes } from "@/lib/db/queries";
+import { parseJsonStringArray } from "@/lib/json";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
 /**
@@ -19,7 +20,7 @@ async function GET_handler(request: NextRequest) {
 
   const resumes = listResumes().map((row) => ({
     ...row,
-    keywords: row.keywords ? (JSON.parse(row.keywords) as string[]) : [],
+    keywords: parseJsonStringArray(row.keywords),
   }));
 
   return Response.json({ resumes }, { headers: rateLimit.headers });

@@ -2,7 +2,7 @@ import { db } from "@/lib/db/index";
 import { scrapeResults, jobAnalysis, scrapeRuns, jobs } from "@/lib/db/schema";
 import { sql, desc } from "drizzle-orm";
 import { normalizeJobUrl } from "@/lib/jobIdentity";
-import { FOLLOW_UP_DAYS } from "@/lib/constants";
+import { ACTIVE_INTERVIEW_STATUSES, FOLLOW_UP_DAYS } from "@/lib/constants";
 import { getOpenSteps, getPipelineMetrics } from "@/lib/db/queries";
 import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 import { NextRequest, NextResponse } from "next/server";
@@ -218,7 +218,7 @@ async function GET_handler(request: NextRequest) {
   for (const job of allJobs) {
     statusCounts[job.status] = (statusCounts[job.status] || 0) + 1;
     if (job.status !== "saved") totalApplied++;
-    if (["phone_screen", "technical", "onsite"].includes(job.status)) activeInterviews++;
+    if ((ACTIVE_INTERVIEW_STATUSES as readonly string[]).includes(job.status)) activeInterviews++;
     if (job.status === "offer") offers++;
     if (job.status === "applied" && job.dateApplied) {
       const daysSince = Math.floor((now - new Date(job.dateApplied).getTime()) / 86400000);
