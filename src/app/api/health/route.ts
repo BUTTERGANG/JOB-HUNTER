@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getClientIdentifier } from "@/lib/rateLimit";
+import { generalRateLimiter, getClientIdentifier } from "@/lib/rateLimit";
 
 /**
  * Health check.
@@ -12,8 +12,18 @@ import { getClientIdentifier } from "@/lib/rateLimit";
  * debuggable from outside.
  */
 export async function GET(request: NextRequest) {
+  // Every other route is limited; an unlimited endpoint is an easy way to fingerprint or
+  // hammer the service, so this one is too.
+  const rateLimit = generalRateLimiter(getClientIdentifier(request));
+  if (!rateLimit.allowed) {
+    return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
+      status: 429,
+      headers: { ...rateLimit.headers, "Content-Type": "application/json" },
+    });
+  }
+
   return Response.json(
     { status: "ok", timestamp: Date.now(), client: getClientIdentifier(request) },
-    { status: 200 }
+    { status: 200, headers: rateLimit.headers }
   );
 }

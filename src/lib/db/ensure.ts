@@ -98,5 +98,16 @@ export function ensureDb() {
 
   sqlite.close();
 
+  // The database holds the OpenRouter key and personal data (the master resume carries a
+  // name, email and phone number). SQLite creates files 0644 — world-readable — so tighten
+  // them. WAL and SHM are created alongside and carry the same content.
+  for (const suffix of ["", "-wal", "-shm"]) {
+    try {
+      fs.chmodSync(`${dbPath}${suffix}`, 0o600);
+    } catch {
+      // Best effort: a missing -wal/-shm simply means nothing to tighten.
+    }
+  }
+
   initialized = true;
 }

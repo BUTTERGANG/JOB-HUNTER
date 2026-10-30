@@ -1,3 +1,35 @@
+## 2026-10-30 — Security: the tailnet is the auth layer, and the SSRF hole is closed
+
+**Decision.** The app has **no application authentication**. Access control is the Tailscale
+binding: the socket listens on the tailnet address only, so only tailnet devices can reach it.
+The full assessment and its evidence live in `docs/security.md`.
+
+**Why not app auth.** The `withAuth` middleware was wired to two routes that the browser could
+not satisfy (it 401'd the dashboard's own buttons), and its `getClientIdentifier` was a
+byte-identical copy of `rateLimit.ts`'s. It was decorative rather than protective: 25 of 27
+routes were always open. Rather than build auth for a single-user tool on a private network,
+the network became the boundary and the dead middleware was deleted.
+
+**What that means, on the record.** Any device on the tailnet has full read/write access. The
+default Tailscale ACL is allow-all, so unless it is narrowed, every peer can reach the app. The
+API key cannot be *read* through the app (it is masked) but can be *spent* through `/api/ai/*`,
+so app access is equivalent to holding a spending-capable key.
+
+**Fixed in the same pass:**
+- **SSRF, confirmed exploitable.** `/api/analyze-url` fetched a request-supplied URL with no
+  validation, so the server could be pointed at loopback, the LAN or the tailnet; both the
+  native fetch and the curl fallbacks also followed redirects into them. All three paths now
+  validate first, redirects are followed manually with each hop checked, and curl does not
+  follow them at all.
+- **The DB file was world-readable** while holding the API key and PII; `ensureDb()` now chmods
+  it (and its WAL/SHM) to `0600`.
+- **`shadcn` sat in `dependencies`** and carried the only three audit findings; moved to
+  `devDependencies`, `npm audit` is clean.
+- **The SSRF guard initially over-blocked**: the private-range checks were applied to any host,
+  so the ordinary public hostname `192.168.example.com` was refused. Range rules are now gated
+  on the host parsing as an IPv4 literal. Caught only because the test asserted what must still
+  be *allowed*, not just what must be refused.
+
 ## 2026-10-30 — Silent-error audit: what was fixed, and what is still open
 
 A sweep for failures that do not announce themselves. Fixed items are decisions; the open

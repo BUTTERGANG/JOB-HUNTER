@@ -376,6 +376,13 @@ cannot fail to respond, so it must not dilute them), median days to first respon
 furthest-stage-reached distribution — a rejected listing keeps its high-water mark — and
 applications grouped by week.
 
+## Security
+
+**[docs/security.md](docs/security.md)** — what protects this app, what does not, and the
+residual risk. The short version: the tailnet is the access-control layer and there is **no
+application authentication**, so treat any tailnet device as having full access (including the
+ability to spend your OpenRouter credit). Read it before exposing this beyond the tailnet.
+
 ## Decisions
 
 Why things are the way they are — including what was rejected and why — lives in
@@ -385,7 +392,7 @@ recorded decision rather than a regression.
 
 ## Verifying
 
-Eight scripts, in increasing order of what they need. All of them assert on real rows and
+Nine scripts, in increasing order of what they need. All of them assert on real rows and
 real responses rather than on the code's intent.
 
 ```bash
@@ -405,20 +412,24 @@ node_modules/.bin/tsx scripts/verify-resume-match.ts
 #    migrations agree, so a fresh database cannot silently lack a column.
 node_modules/.bin/tsx scripts/verify-fresh-db.ts
 
-# 5. The arsenal against the real database: tailoring → recommending → reusing, then it
+# 5. The SSRF guard — 22 internal/metadata targets must be refused, and ordinary public
+#    URLs must still be allowed (a guard that blocks real URLs is a broken feature).
+node_modules/.bin/tsx scripts/verify-safe-fetch.ts
+
+# 6. The arsenal against the real database: tailoring → recommending → reusing, then it
 #    deletes everything it created.
 node_modules/.bin/tsx scripts/verify-arsenal.ts
 
-# 6. Ranking rules — units, the commitment rule, weight normalisation, penalty
+# 7. Ranking rules — units, the commitment rule, weight normalisation, penalty
 #    visibility, profile round-trips, and that no persona text survives in the prompt.
 node_modules/.bin/tsx scripts/verify-ranking.ts
 
-# 7. Live ranking — the real ranker through the configured provider, against the real
+# 8. Live ranking — the real ranker through the configured provider, against the real
 #    scraped listings plus off-profile controls; prints axes, pay unit, hours verdict,
 #    flags, penalties and notes.
 node_modules/.bin/tsx scripts/rank-probe.ts
 
-# 8. Whole pipeline against a running server — scrape → rank → persist → market analysis
+# 9. Whole pipeline against a running server — scrape → rank → persist → market analysis
 #    → import to tracker → listing recheck → resume JSON → DOCX → dashboard →
 #    paste-a-posting. Prints PASS/FAIL per stage, and auto-detects the server
 #    (BASE → localhost → this machine's Tailscale address).

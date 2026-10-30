@@ -1,4 +1,24 @@
-## 2026-10-30 — Silent-error audit and cleanup
+## 2026-10-30 — Security assessment, SSRF closed
+
+Added **docs/security.md** (verdict, evidence, residual risk) and fixed what the assessment
+found. Summary: the tailnet is the access-control layer and the app has no application
+authentication of its own — adequate for a single-user tool on a private network, not safe to
+expose publicly.
+
+- **SSRF was confirmed exploitable** in `/api/analyze-url`: the server fetched a
+  request-supplied URL with no validation (proven by aiming it at the app's own `/api/health`),
+  and both fetch paths followed redirects into internal addresses. All paths now validate the
+  URL, redirects are followed manually with every hop checked, and the curl fallback no longer
+  follows them. `verify-safe-fetch.ts` covers 22 refused targets and 6 that must still work.
+- **The database was world-readable** (`0644`) while storing the OpenRouter key and PII;
+  `ensureDb()` now chmods the DB, WAL and SHM to `0600` (applied to the live file too).
+- **`/api/health` was the only route without a rate limiter.**
+- **`shadcn` moved to `devDependencies`** — it was a runtime dependency carrying the project's
+  only three audit findings. `npm audit` now reports 0 vulnerabilities.
+- The SSRF guard first **over-blocked** `192.168.example.com`; range rules are now gated on the
+  host being an IPv4 literal.
+
+
 
 A sweep for failures that do not announce themselves, plus a build-tracing warning. The full
 list, including what was left open, is in docs/decisions.md.

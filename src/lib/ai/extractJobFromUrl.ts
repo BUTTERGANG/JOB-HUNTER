@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { chatComplete, extractJson } from "./llm";
 import type { JobInput } from "./analyzeJobs";
+import { assertSafeFetchUrl, UnsafeUrlError } from "../safeFetch";
 
 const exec = promisify(execFile);
 
@@ -73,14 +74,24 @@ interface RawFetch {
   html: string;
 }
 
-/** Attempt 1: Node's built-in fetch. */
-async function fetchNative(url: string): Promise<RawFetch> {
+/** Attempt 1: Node's built-in fetch. Follows redirects manually so each hop is checked. */
+async function fetchNative(url: string, hop = 0): Promise<RawFetch> {
   try {
+    // `redirect: "follow"` would let a public URL bounce the server into an internal
+    // address, so every URL about to be requested is validated first.
+    assertSafeFetchUrl(url);
     const res = await fetch(url, {
-      redirect: "follow",
+      redirect: "manual",
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: browserHeaders(url),
     });
+
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (!location || hop >= 3) return { ok: false, status: res.status, html: "" };
+      const next = new URL(location, url).toString();
+      return fetchNative(next, hop + 1); // re-validated at the top of the recursion
+    }
     const html = res.ok ? await res.text().catch(() => "") : "";
     return { ok: res.ok, status: res.status, html };
   } catch {
@@ -97,7 +108,9 @@ async function fetchNative(url: string): Promise<RawFetch> {
 async function fetchCurl(url: string, proxy: string | null): Promise<RawFetch> {
   const STATUS_MARK = "\n__HTTP_STATUS__:";
   const args = [
-    "-sL",
+    // Deliberately NOT -L: curl would do the redirect hop itself and bypass the SSRF check
+    // on the destination. The native attempt above follows redirects with validation.
+    "-s",
     "--compressed",
     "--max-time",
     String(CURL_TIMEOUT_S),
@@ -165,6 +178,18 @@ export async function fetchJobPageText(
   opts?: { proxy?: string | null }
 ): Promise<FetchResult> {
   const proxy = opts?.proxy ?? null;
+
+  // The URL comes from the request, so it is validated before ANY attempt runs — the curl
+  // fallbacks do not go through Node's fetch and would otherwise never be checked.
+  try {
+    assertSafeFetchUrl(url);
+  } catch (error) {
+    if (error instanceof UnsafeUrlError) {
+      return { ok: false, text: "", status: null, error: error.message };
+    }
+    throw error;
+  }
+
   const target = resolveFetchUrl(url);
   let lastStatus: number | null = null;
 
