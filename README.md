@@ -372,9 +372,16 @@ cannot fail to respond, so it must not dilute them), median days to first respon
 furthest-stage-reached distribution — a rejected listing keeps its high-water mark — and
 applications grouped by week.
 
+## Decisions
+
+Why things are the way they are — including what was rejected and why — lives in
+**[docs/decisions.md](docs/decisions.md)**. Read it before changing ranking, search,
+progress tracking or the resume pipeline; a change there is a deliberate reversal of a
+recorded decision rather than a regression.
+
 ## Verifying
 
-Five scripts, in increasing order of what they need. All of them assert on real rows and
+Six scripts, in increasing order of what they need. All of them assert on real rows and
 real responses rather than on the code's intent.
 
 ```bash
@@ -386,16 +393,20 @@ node_modules/.bin/tsx scripts/verify-pipeline-metrics.ts
 #    drives it through the pipeline, then deletes it (the cascade cleans up).
 node_modules/.bin/tsx scripts/verify-steps.ts
 
-# 3. Ranking rules — units, the commitment rule, weight normalisation, penalty
+# 3. Resume-arsenal matching — canonicalisation of craft terms, coverage thresholds,
+#    the description-as-evidence rule, and that legacy markdown resumes are matchable.
+node_modules/.bin/tsx scripts/verify-resume-match.ts
+
+# 4. Ranking rules — units, the commitment rule, weight normalisation, penalty
 #    visibility, profile round-trips, and that no persona text survives in the prompt.
 node_modules/.bin/tsx scripts/verify-ranking.ts
 
-# 4. Live ranking — the real ranker through the configured provider, against the real
+# 5. Live ranking — the real ranker through the configured provider, against the real
 #    scraped listings plus off-profile controls; prints axes, pay unit, hours verdict,
 #    flags, penalties and notes.
 node_modules/.bin/tsx scripts/rank-probe.ts
 
-# 5. Whole pipeline against a running server — scrape → rank → persist → market analysis
+# 6. Whole pipeline against a running server — scrape → rank → persist → market analysis
 #    → import to tracker → listing recheck → resume JSON → DOCX → dashboard →
 #    paste-a-posting. Prints PASS/FAIL per stage, and auto-detects the server
 #    (BASE → localhost → this machine's Tailscale address).

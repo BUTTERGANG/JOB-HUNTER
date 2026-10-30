@@ -2,7 +2,31 @@
 
 All notable changes to JOB-HUNTER. Newest first.
 
-## 2026-10-28 — Keyword expansion, measured for relevance not just volume
+## 2026-10-30 — Decision log, and the resume-arsenal matcher
+
+- **`docs/decisions.md`** — why things are the way they are, with what was rejected. Covers
+  the resume arsenal, the harness that destroyed the master resume, no-XP, the stage-event
+  log, measure-relevance-not-yield, the tailnet binding, search levers, and profile-driven
+  ranking. The README now points at it as required reading before changing those areas.
+- **`src/lib/resumeMatch.ts`** + **`scripts/verify-resume-match.ts`** (48 checks) — the
+  matching half of the arsenal: given a job, which resume you already have fits it, and does
+  it warrant a fresh tailoring. Logic only; schema, API, library page and the job-page
+  recommendation are not built yet.
+
+**Bugs the harness caught while writing it** — all three were real, not test noise:
+- `photographer` and `photography` were different tokens, so the single most important
+  overlap was invisible and a video resume scored 0 against a video job. Craft terms are now
+  canonicalised (`photo`, `video`, `edit`, `dj`, …) with a phrase pass for multi-word ones
+  (`disc jockey`).
+- The 3-character minimum was silently discarding **`dj`** — a core term for this searcher.
+  Short signal terms now have an allowlist.
+- Coverage was denominator-sensitive: a 2,000-character description added ~150 weight-1 tokens
+  and swamped the title and keywords, so a same-vertical job stopped looking like a match.
+  Description text is now supporting evidence with a capped bonus, never part of the ratio.
+- A legacy markdown resume parsed to an empty fingerprint and was permanently unmatchable; it
+  now falls back to its own raw text.
+
+, measured for relevance not just volume
 
 Asked what other keywords to search. Answered by measuring rather than guessing: 48
 candidate terms drawn from the resume (LA MEDIA, Complete Weddings, Meet Week, Moran
