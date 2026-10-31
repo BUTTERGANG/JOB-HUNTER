@@ -561,6 +561,11 @@ const parseKeywordList = parseJsonStringArray;
  */
 export function getArsenalCandidates(excludeJobId?: number): ResumeCandidate[] {
   return listResumes()
+    // A "reused" row is a COPY of another resume, attached to a job. Treating copies as
+    // candidates let a copy of the master outrank a purpose-built resume for the same job
+    // (it covers identical ground but, unlike the master, carried no master penalty). The
+    // original is already in the pool, so copies are simply skipped.
+    .filter((row) => row.type !== "reused")
     .filter((row) => !(excludeJobId != null && row.jobId === excludeJobId))
     .map((row) => {
       const full = getResumeById(row.id);

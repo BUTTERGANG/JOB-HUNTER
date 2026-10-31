@@ -126,7 +126,13 @@ try {
   eq("…with the content intact", JSON.parse(attached!.content).tagline, "Wedding Videographer");
 
   const candidates = getArsenalCandidates();
-  check("both resumes are matchable candidates", candidates.some((c) => c.id === saved!.id) && candidates.some((c) => c.id === reused!.id));
+  check("the original is a matchable candidate", candidates.some((c) => c.id === saved!.id));
+  // A reused row is a COPY of another resume. Letting copies compete let a copy of the
+  // master outrank a purpose-built resume for the same job, so copies are excluded.
+  check(
+    "…and its reused copy is NOT (copies would compete with the original)",
+    !candidates.some((c) => c.id === reused!.id)
+  );
 
   // ── rename + delete ─────────────────────────────────────────────────────
   console.log("\n── rename and delete ──");
