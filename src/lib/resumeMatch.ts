@@ -207,6 +207,13 @@ export const REUSE_THRESHOLD = 65;
 export const ADAPT_THRESHOLD = 35;
 
 /**
+ * Verdicts that mean "an existing resume already covers this well enough to attach it
+ * rather than generate a new one". Used by the batch runner to decide whether a job costs
+ * a model call at all.
+ */
+export const RESUME_REUSE_VERDICTS: MatchVerdict[] = ["reuse", "adapt"];
+
+/**
  * Most points that supporting description overlap can add.
  *
  * Capped because it is evidence, not a signal: without a cap a resume that happens to

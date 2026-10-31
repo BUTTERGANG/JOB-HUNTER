@@ -89,14 +89,40 @@ export async function checkPythonDependencies(
 ): Promise<string | null> {
   const { bin, source } = resolvePythonBin();
   const modules = needs.map((m) => (m === "jobspy" ? "jobspy" : "playwright")).join(", ");
+  const where = `${bin}${source === "path" ? ", from PATH" : `, from ${source}`}`;
+
+  // Check the interpreter RUNS before checking what it can import.
+  //
+  // A virtualenv built from a Homebrew Python links the framework by FULL version path
+  // (/opt/homebrew/Cellar/python@3.11/3.11.17_1/...). When `brew upgrade` moves python to
+  // 3.11.18 that path disappears, the binary aborts with "Library not loaded", and the only
+  // symptom is a failed import — so the old message said "install jobspy" and sent you to
+  // reinstall a package that was never the problem. Distinguishing the two cases matters
+  // because this recurs on every Homebrew Python upgrade.
+  try {
+    await exec(bin, ["-c", "pass"]);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message.split("\n").slice(0, 2).join(" ").trim() : "unknown error";
+    return (
+      `The scraper's Python interpreter will not even run (${where}).\n` +
+      `This usually means Homebrew upgraded Python and the virtualenv still points at the old\n` +
+      `framework path, so the binary aborts with "Library not loaded". Rebuild it against the\n` +
+      `current interpreter:\n` +
+      `  rm -rf .venv && /opt/homebrew/opt/python@3.11/bin/python3.11 -m venv --copies .venv\n` +
+      `  .venv/bin/pip install python-jobspy` +
+      (needs.includes("playwright") ? " playwright && .venv/bin/playwright install chromium" : "") +
+      `\n(${detail})`
+    );
+  }
+
   try {
     await exec(bin, ["-c", `import ${needs.join(", ")}`]);
     return null;
   } catch (e) {
     const detail = e instanceof Error ? e.message.split("\n")[0] : "unknown error";
     return (
-      `The scraper's Python interpreter (${bin}${source === "path" ? ", from PATH" : `, from ${source}`}) ` +
-      `cannot import ${modules}. Create a project virtualenv and install them:\n` +
+      `The scraper's Python interpreter (${where}) cannot import ${modules}. ` +
+      `The interpreter runs, so this is a missing package rather than a broken virtualenv:\n` +
       `  python3 -m venv --copies .venv && .venv/bin/pip install python-jobspy` +
       (needs.includes("playwright") ? " playwright && .venv/bin/playwright install chromium" : "") +
       `\n(${detail})`

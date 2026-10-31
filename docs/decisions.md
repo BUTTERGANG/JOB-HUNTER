@@ -1,3 +1,30 @@
+## 2026-10-31 — The daily sweep, gateway notifications, and a venv that a brew upgrade broke
+
+**Decision.** A daily LaunchAgent drives the scheduled scrape, and notifications go out
+through the **Hermes gateway** (`hermes send`) rather than the app's own Discord webhook.
+
+**Why the gateway.** A webhook means a second bot identity and the credential living in this
+app's database. Hermes already runs a gateway with Discord configured and `hermes send` is
+built for scripts, so updates land in the project's own Discord thread next to every other
+app's — one bot, one place credentials live, no LLM call. `notify_via` still allows
+`webhook`, and `off` disables it.
+
+**Also fixed on the way:**
+- **The scheduled path never passed `distance`.** Every scheduled run silently used jobspy's
+  50-mile default — the most expensive omission from the search-yield work (~70% of listings
+  on the table). It now reads `schedule_distance`, and the defaults moved from the restrictive
+  25 results / 24 hours to the measured 100 / 720.
+- **A Homebrew Python upgrade silently broke all scraping.** `python@3.11` moved 3.11.17_1 →
+  3.11.18, and a virtualenv built from Homebrew Python links the framework by FULL version
+  path, so the venv's binary aborted with `Library not loaded`. The app's own error message
+  said "cannot import jobspy" and told you to reinstall a package that was never the problem.
+  `checkPythonDependencies` now checks that the interpreter **runs** before checking what it
+  can import, and names the real cause and the rebuild command. This recurs on every Homebrew
+  Python upgrade, so the diagnosis matters more than the one-off fix.
+
+**Operational note.** The Hermes gateway session is blocked from `launchctl bootstrap`, so the
+daily agent has to be loaded from a separate shell — documented in the README.
+
 ## 2026-10-30 — Security: the tailnet is the auth layer, and the SSRF hole is closed
 
 **Decision.** The app has **no application authentication**. Access control is the Tailscale

@@ -4,7 +4,7 @@ import { eq, desc, inArray, sql } from "drizzle-orm";
 import type { NewJob, NewJobStep, ScrapeResult, BulkRunRow, AnalysisRunRow, GovScrapeResult } from "./schema";
 import type { JobAnalysisResult } from "../ai/analyzeJobs";
 import { ensureDb } from "./ensure";
-import { getJobIdentityKey, type JobIdentityInput } from "../jobIdentity";
+import { getJobIdentityKey, normalizeJobUrl, type JobIdentityInput } from "../jobIdentity";
 import { parseTargetProfile, PROFILE_SETTING_KEY, type TargetProfile } from "../profile";
 import { computePipelineMetrics, proposeNextStep } from "../pipeline";
 import { interestHits } from "../match";
@@ -494,6 +494,55 @@ export function updateResumeContent(id: number, content: string) {
 export function renameResume(id: number, label: string) {
   const d = getDb();
   return d.update(resumes).set({ label }).where(eq(resumes.id, id)).returning().get();
+}
+
+/**
+ * Best-ranked listings that do not have a resume yet and are not already tracked.
+ *
+ * The point of the batch is to cover the top of the list, so they come back score-ordered.
+ * Already-tracked listings are excluded because they already have a next step and possibly a
+ * resume — re-importing them would duplicate the pipeline and reset their history.
+ */
+export function getResumeBatchCandidates(minScore: number, limit: number) {
+  const d = getDb();
+
+  const trackedUrls = new Set(
+    d
+      .select({ url: jobs.url })
+      .from(jobs)
+      .all()
+      .map((row) => normalizeJobUrl(row.url))
+      .filter((key): key is string => Boolean(key))
+  );
+
+  const rows = d
+    .select({
+      scrapeResultId: jobAnalysis.scrapeResultId,
+      rankScore: jobAnalysis.rankScore,
+      role: scrapeResults.role,
+      company: scrapeResults.company,
+      location: scrapeResults.location,
+      url: scrapeResults.url,
+      description: scrapeResults.description,
+      salaryMin: scrapeResults.salaryMin,
+      salaryMax: scrapeResults.salaryMax,
+      source: scrapeResults.source,
+      salaryInterval: scrapeResults.salaryInterval,
+      scoreInterest: jobAnalysis.scoreInterest,
+      scorePay: jobAnalysis.scorePay,
+    })
+    .from(jobAnalysis)
+    .innerJoin(scrapeResults, eq(scrapeResults.id, jobAnalysis.scrapeResultId))
+    .where(sql`${jobAnalysis.rankScore} >= ${minScore}`)
+    .orderBy(desc(jobAnalysis.rankScore))
+    .all();
+
+  return rows
+    .filter((row) => {
+      const key = normalizeJobUrl(row.url);
+      return !(key && trackedUrls.has(key));
+    })
+    .slice(0, Math.max(1, limit));
 }
 
 export function deleteResume(id: number) {

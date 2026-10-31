@@ -22,6 +22,20 @@ interface ArsenalResume {
   jobRole: string | null;
 }
 
+interface BatchRun {
+  runId: string;
+  status: "running" | "done" | "cancelled";
+  total: number;
+  done: number;
+  tailored: number;
+  reused: number;
+  failed: number;
+  current: string | null;
+  minScore: number;
+  errors: { company: string; role: string; error: string }[];
+  results: { jobId: number; company: string; role: string; score: number; how: "reused" | "tailored" }[];
+}
+
 interface TrackedJob {
   id: number;
   company: string;
@@ -61,6 +75,11 @@ export default function ResumesPage() {
   const [renameValue, setRenameValue] = useState("");
   const [reuseTarget, setReuseTarget] = useState<Record<number, string>>({});
   const [notice, setNotice] = useState("");
+  const [batch, setBatch] = useState<BatchRun | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchError, setBatchError] = useState("");
+  const [batchScore, setBatchScore] = useState(70);
+  const [batchLimit, setBatchLimit] = useState(5);
 
   function load() {
     Promise.all([
@@ -79,6 +98,52 @@ export default function ResumesPage() {
   }
 
   useEffect(load, []);
+
+  // Poll the batch while it runs; the runner lives server-side and keeps going if you
+  // navigate away, so the state comes back on reload too.
+  useEffect(() => {
+    fetch("/api/resumes/batch")
+      .then((r) => r.json())
+      .then((d) => setBatch(d.run ?? null))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (batch?.status !== "running") return;
+    const timer = setTimeout(() => {
+      fetch("/api/resumes/batch")
+        .then((r) => r.json())
+        .then((d) => {
+          setBatch(d.run ?? null);
+          if (d.run?.status !== "running") load();
+        })
+        .catch(() => {});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [batch, ]);
+
+  async function startBatch() {
+    setBatchBusy(true);
+    setBatchError("");
+    try {
+      const res = await fetch("/api/resumes/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ minScore: batchScore, limit: batchLimit }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBatchError(json.error ?? "Could not start the batch.");
+        return;
+      }
+      const status = await fetch("/api/resumes/batch").then((r) => r.json());
+      setBatch(status.run ?? null);
+    } catch {
+      setBatchError("Network error — nothing started.");
+    } finally {
+      setBatchBusy(false);
+    }
+  }
 
   async function act(id: number, fn: () => Promise<Response>, message: string) {
     setBusy(id);
@@ -123,6 +188,90 @@ export default function ResumesPage() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
       {notice && <p className="text-sm text-primary">{notice}</p>}
+
+      {/* ── Batch generation ── */}
+      <Card>
+        <CardContent className="pt-4">
+          {batch?.status === "running" ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">
+                  Generating for the top matches… ({batch.done} / {batch.total})
+                </span>
+                <button
+                  className="text-xs text-muted-foreground underline hover:text-foreground"
+                  onClick={() =>
+                    fetch("/api/resumes/batch", { method: "DELETE" })
+                      .then((r) => r.json())
+                      .then(() => fetch("/api/resumes/batch").then((r) => r.json()))
+                      .then((d) => setBatch(d.run ?? null))
+                      .catch(() => {})
+                  }
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${Math.round((batch.done / Math.max(1, batch.total)) * 100)}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {batch.reused} reused · {batch.tailored} tailored · {batch.failed} failed
+                {batch.current ? ` · now: ${batch.current}` : ""}
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Generate for top matches</p>
+                <p className="mt-0.5 max-w-xl text-xs text-muted-foreground">
+                  Walks the highest-scoring listings that are not tracked yet. It checks this
+                  library first and reuses a resume that already fits, so only genuinely
+                  different postings cost a model call. Each one is added to your tracker with
+                  a next step.
+                </p>
+                {/* In this branch the status is already known not to be "running". */}
+                {batch && batch.total > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Last run: {batch.reused} reused · {batch.tailored} tailored · {batch.failed} failed
+                    {batch.errors.length > 0 && ` — ${batch.errors[0].error}`}
+                  </p>
+                )}
+                {batchError && <p className="mt-1 text-xs text-destructive">{batchError}</p>}
+              </div>
+              <div className="flex items-end gap-2">
+                <label className="text-xs text-muted-foreground">
+                  min score
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={batchScore}
+                    onChange={(e) => setBatchScore(Number(e.target.value))}
+                    className="mt-1 block h-8 w-16 rounded-md border border-border bg-background px-2 text-sm"
+                  />
+                </label>
+                <label className="text-xs text-muted-foreground">
+                  how many
+                  <input
+                    type="number"
+                    min={1}
+                    max={25}
+                    value={batchLimit}
+                    onChange={(e) => setBatchLimit(Number(e.target.value))}
+                    className="mt-1 block h-8 w-16 rounded-md border border-border bg-background px-2 text-sm"
+                  />
+                </label>
+                <Button size="sm" disabled={batchBusy} onClick={startBatch}>
+                  {batchBusy ? "Starting…" : "Start"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>

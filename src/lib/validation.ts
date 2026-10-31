@@ -208,7 +208,10 @@ export function validateSettingsUpdate(input: unknown): ValidationResult<Record<
   const allowedKeys = [
     "user_name", "target_salary_floor", "target_salary_target", "target_salary_stretch",
     "masterResume", "schedule_searches", "schedule_sites", "schedule_results",
-    "schedule_hours", "discord_notifications_enabled", "discord_webhook_url",
+    "schedule_hours", "schedule_distance", "discord_notifications_enabled", "discord_webhook_url",
+    // Where updates go. "gateway" routes through the Hermes gateway (`hermes send`) so one
+    // bot owns every app's messages; "webhook" keeps the app's own Discord webhook.
+    "notify_via", "notify_target",
     "discord_min_score", "discord_max_jobs", "scrape_dedupe_enabled",
     "scrape_proxies", "scrape_proxy_sessions",
     // LLM configuration. `llm_provider` picks OpenRouter (default) or Anthropic

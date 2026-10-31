@@ -1,4 +1,23 @@
-## 2026-10-30 — Security assessment, SSRF closed
+## 2026-10-31 — Runs daily, alerts through the gateway, and generates resumes in batch
+
+- **A daily sweep.** `scripts/daily-scrape.mjs` + `ai.buttergang.job-hunter-daily.plist` POST
+  the scheduled-scrape endpoint at 06:15, so scrape → rank → notify all run through the same
+  path the UI uses. Search terms, radius and window come from settings.
+- **Alerts via the Hermes gateway.** `hermes send --to discord:#thread` replaces the app's own
+  webhook as the default transport (`notify_via` still allows `webhook` or `off`). Verified by
+  sending a real message into the JOB DASHBOARD thread.
+- **Batch resume generation.** Walks the top-scoring untracked listings, **checks the arsenal
+  first** and attaches an existing resume when one fits, otherwise tailors. Imports each one to
+  the tracker with a next step, runs 2 at a time, reports progress, cancellable.
+- **The scheduled path never sent `distance`** — every scheduled run silently used jobspy's
+  50-mile default. Now reads `schedule_distance`; defaults moved to the measured 100 / 720.
+- **Fixed a Homebrew breakage that had killed all scraping.** `python@3.11` moved 3.11.17_1 →
+  3.11.18; a venv built from Homebrew Python links the framework by full version path, so the
+  interpreter aborted with "Library not loaded" — and the error pointed at a missing package
+  instead. The venv is rebuilt, and `checkPythonDependencies` now distinguishes a broken
+  interpreter from a missing package and names the real cause.
+
+
 
 Added **docs/security.md** (verdict, evidence, residual risk) and fixed what the assessment
 found. Summary: the tailnet is the access-control layer and the app has no application

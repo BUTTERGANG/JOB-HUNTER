@@ -20,6 +20,8 @@ A personal job-hunting dashboard that scrapes listings from multiple job boards,
 - **Salary targeting** — Set minimum/target/stretch salaries; benchmark against BLS data
 - **Master resume** — Store your resume once; use it when tailoring applications
 - **AI resume tailoring** — Generate a job-specific resume from your master resume + the JD (structured JSON), preview it, hand-edit it, and export to Word (`.docx`)
+- **Batch resume generation** — walks the highest-scoring untracked listings and produces or attaches a resume for each, checking the library first so only genuinely different postings cost a model call. Each one lands in your tracker with a next step
+- **A daily sweep that runs itself** — a LaunchAgent POSTs the scheduled-scrape endpoint at 06:15, and updates go out through the **Hermes gateway** (`hermes send`) into the project's Discord thread, so one bot owns every app's messages
 - **Resume arsenal** — every resume the app produces is collected in a **Resumes** tab. When you open a job, the app checks the library first and recommends one you already have (*reuse*, *light edit*, or *tailor fresh*) with the match score and the terms the posting asks for that the resume does not cover. Reusing attaches a copy to the job and increments the original's reuse count, so the resumes that earn their keep are visible. Matching reads the resume's own content, so the master resume works as a candidate with no setup
 - **Next steps, not a to-do list** — every tracked job carries exactly one actionable step, chosen from its status (Apply → Follow up → Send thank-you → Ask for timeline → Respond to offer). Tick it off and the next one is proposed automatically. Completing an "Apply" step also advances the job to applied and dates it, so the metrics below need no extra bookkeeping
 - **Progress you can measure** — every status change is appended to a stage history, so "how far did I get" survives a rejection: a rejection after an onsite still counts as having reached the onsite. The dashboard shows the funnel (applied → responded → interview → offer) with conversion rates, median days to first response, the furthest-stage-reached distribution, and applications grouped by the week they went out
@@ -107,18 +109,15 @@ Built and verified end to end (scrape → rank → persist → track → tailor 
 | Job tracking, next steps, pipeline progress metrics, market analysis, BLS benchmarks | working |
 | Resume: master, per-job tailoring, **arsenal with reuse**, `.docx` export | working — the library recommends an existing resume before you tailor a new one |
 | Security | tailnet-only binding, no app auth (see [docs/security.md](docs/security.md)); SSRF closed, DB `0600` |
-| Scheduled scrapes + Discord alerts | working |
+| Scheduled scrapes + alerts | **now actually scheduled** — a daily LaunchAgent drives it, updates go out via the Hermes gateway to the Discord thread |
 | Runs as a LaunchAgent on the mini, reachable over Tailscale | working |
 
 **Not built yet** — the gap between "a dashboard that finds and ranks jobs" and "identify
 jobs and generate resumes automatically":
 
-1. **Batch resume generation.** Tailoring works one job at a time from `/jobs/[id]`, and the
-   arsenal now recommends an existing resume before a new one is made — but nothing walks the
-   ranked list and produces resumes for the top N automatically.
-2. **Auto-apply.** No browser automation exists. The intended approach is driving the
+1. **Auto-apply.** No browser automation exists. The intended approach is driving the
    persistent Brave over CDP, reusing a single tab.
-3. **Vendor channels.** `dj`, `wedding dj` and `event photographer` return **zero** listings
+2. **Vendor channels.** `dj`, `wedding dj` and `event photographer` return **zero** listings
    on Indeed — that work is not posted on job boards at all. Thumbtack / GigSalad / The Knot
    sourcing is where the wedding and live-event work lives, and none of it is implemented.
 
@@ -240,6 +239,7 @@ job-hunt-app/
 | `/api/resumes` | GET | The resume arsenal: every resume, its source job and reuse count |
 | `/api/resumes/[id]` | PATCH/POST/DELETE | Rename · reuse for a job · delete |
 | `/api/resumes/[id]/docx` | GET | Export any arsenal resume to Word |
+| `/api/resumes/batch` | GET/POST/DELETE | Batch resume generation: status / start / cancel |
 | `/api/jobs/[id]/steps` | GET/POST/PATCH | Next steps for a job + its stage history; add, complete, reopen or dismiss a step |
 | `/api/jobs/[id]/fetch-description` | POST | Fetch + extract a tracked job's posting text |
 | `/api/government-postings` | GET | List collected government postings |
@@ -271,6 +271,26 @@ launchctl print   gui/$(id -u)/ai.buttergang.job-hunter   # status
 launchctl kickstart -k gui/$(id -u)/ai.buttergang.job-hunter   # restart
 launchctl bootout gui/$(id -u)/ai.buttergang.job-hunter   # stop (KeepAlive won't fight you)
 tail -f ~/Library/Logs/job-hunter.log                    # logs
+```
+
+### The daily sweep
+
+A second agent runs `scripts/daily-scrape.mjs` at **06:15** every day: it POSTs the
+scheduled-scrape endpoint, so the scrape, the ranking and the notification all run through
+the same code path the UI uses. Search terms, radius and window come from the
+`schedule_*` settings; the alert target comes from `notify_target`.
+
+```bash
+launchctl print   gui/$(id -u)/ai.buttergang.job-hunter-daily   # status
+tail -f ~/Library/Logs/job-hunter-daily.log                     # output
+launchctl kickstart -k gui/$(id -u)/ai.buttergang.job-hunter-daily   # run it now
+```
+
+**The daily agent must be loaded from a shell outside the Hermes gateway** — that session is
+blocked from `launchctl bootstrap` to prevent restart loops:
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.buttergang.job-hunter-daily.plist
 ```
 
 Agent: `~/Library/LaunchAgents/ai.buttergang.job-hunter.plist`, running
@@ -697,6 +717,7 @@ npm:
 | script | purpose |
 |---|---|
 | `serve-tailnet.mjs` | Runs the app as a service bound to the Tailscale address (see below) |
+| `daily-scrape.mjs` | The daily sweep: POSTs the scheduled-scrape endpoint (run by its own LaunchAgent) |
 | `scrape_jobs.py` | The jobspy wrapper the scrape routes shell out to |
 | `measure-search-yield.py` | Measures how many listings a term/radius/window returns |
 | `measure-search-relevance.py` | Scores a term by how many of its titles are actually this work |
