@@ -208,10 +208,15 @@ export const ADAPT_THRESHOLD = 35;
 
 /**
  * Verdicts that mean "an existing resume already covers this well enough to attach it
- * rather than generate a new one". Used by the batch runner to decide whether a job costs
- * a model call at all.
+ * rather than generate a new one".
+ *
+ * For UNATTENDED use (the batch) only the strong verdict counts. A first version accepted
+ * "adapt" too, and the batch duly attached a resume tailored for a watch/e-commerce listing
+ * to a marketing agency's photographer role: 40%-ish coverage is a reasonable *suggestion*
+ * to show someone, but it is not good enough to make the decision for them. "adapt" is still
+ * surfaced on the job page, where a person can judge it.
  */
-export const RESUME_REUSE_VERDICTS: MatchVerdict[] = ["reuse", "adapt"];
+export const RESUME_AUTO_REUSE_VERDICTS: MatchVerdict[] = ["reuse"];
 
 /**
  * Most points that supporting description overlap can add.

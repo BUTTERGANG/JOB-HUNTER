@@ -1,4 +1,23 @@
-## 2026-10-31 — Runs daily, alerts through the gateway, and generates resumes in batch
+## 2026-10-31 — The scheduled scrape returns a run id, and the sweep stops lying about failures
+
+The first real daily sweep reported `fetch failed` after 5 minutes — while the server had
+successfully scraped 253 new listings and ranked all of them (233 → 486). Two separate
+defects were hiding behind one confusing symptom.
+
+- **The endpoint did the work inline.** A scrape plus ranking hundreds of listings runs longer
+  than the **300-second headers timeout** HTTP clients enforce by default, and that timeout
+  cannot be overridden from the caller. The endpoint now starts a background run and returns
+  `202 {runId}`; the caller polls. Applied as a general rule: nothing that takes minutes is
+  tied to the lifetime of a request.
+- **A failed sweep and a successful one were indistinguishable.** The daily script now polls to
+  completion and exits non-zero only for a real failure, with a distinct code (2) when the
+  scrape worked but the alert did not.
+- Earlier, the same sweep failed instantly on a **broken venv**: Homebrew moved `python@3.11`
+  3.11.17_1 → 3.11.18, and a venv built from Homebrew Python links the framework by full
+  version path, so the interpreter aborted with "Library not loaded" while the app blamed a
+  missing package. Rebuilt, and `checkPythonDependencies` now tells the two apart.
+
+, and generates resumes in batch
 
 - **A daily sweep.** `scripts/daily-scrape.mjs` + `ai.buttergang.job-hunter-daily.plist` POST
   the scheduled-scrape endpoint at 06:15, so scrape → rank → notify all run through the same

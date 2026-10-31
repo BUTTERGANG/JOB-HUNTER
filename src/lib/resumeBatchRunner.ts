@@ -26,7 +26,7 @@ import {
   reuseResumeForJob,
   ensureNextStep,
 } from "./db/queries";
-import { RESUME_REUSE_VERDICTS } from "./resumeMatch";
+import { RESUME_AUTO_REUSE_VERDICTS } from "./resumeMatch";
 
 export interface ResumeBatchProgress {
   runId: string;
@@ -46,13 +46,23 @@ export interface ResumeBatchProgress {
 const registry = new Map<string, { cancelled: boolean }>();
 const progress = new Map<string, ResumeBatchProgress>();
 
+/**
+ * The last completed run.
+ *
+ * Without this, the registry entry is deleted when the run ends and `getResumeBatchRun()`
+ * returns null — so the results (and any errors) vanished the instant the batch finished
+ * and the UI had nothing to show. The first real run completed in under 20 seconds and
+ * looked like it had never happened.
+ */
+let lastFinished: ResumeBatchProgress | null = null;
+
 /** Tailoring is a long model call; two in flight keeps it moving without hammering. */
 const CONCURRENCY = 2;
 
 export function getResumeBatchRun(): ResumeBatchProgress | null {
   const ids = [...registry.keys()];
-  if (ids.length === 0) return null;
-  return progress.get(ids[ids.length - 1]) ?? null;
+  if (ids.length === 0) return lastFinished;
+  return progress.get(ids[ids.length - 1]) ?? lastFinished;
 }
 
 export function cancelResumeBatch(runId?: string): boolean {
@@ -144,7 +154,7 @@ async function run(
         // Arsenal first — this is what stops the batch re-tailoring the same resume.
         const recommendation = recommendResumeForJob(job.id)?.recommendation;
         const best = recommendation?.best;
-        if (best && RESUME_REUSE_VERDICTS.includes(recommendation!.verdict)) {
+        if (best && RESUME_AUTO_REUSE_VERDICTS.includes(recommendation!.verdict)) {
           reuseResumeForJob(job.id, best.id);
           state.reused += 1;
           state.results.push({
@@ -198,6 +208,7 @@ async function run(
   } finally {
     state.current = null;
     if (!entry.cancelled) state.status = "done";
+    lastFinished = state; // kept after completion so the results remain readable
     registry.delete(runId);
   }
 }

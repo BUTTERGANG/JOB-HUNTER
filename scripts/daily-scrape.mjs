@@ -53,52 +53,85 @@ function baseUrl() {
 
 async function main() {
   const base = baseUrl();
-  log(`sweeping via ${base}/api/scrape/scheduled`);
+  log(`starting a sweep via ${base}/api/scrape/scheduled`);
 
-  const started = Date.now();
-  let response;
+  // Start it, then poll. The endpoint returns immediately on purpose: doing the scrape and
+  // ranking inline outlived the 300-second headers timeout that HTTP clients enforce by
+  // default, so the caller saw "fetch failed" while the server finished the work anyway.
+  let started;
   try {
-    response = await fetch(`${base}/api/scrape/scheduled`, {
+    started = await fetch(`${base}/api/scrape/scheduled`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
-      signal: AbortSignal.timeout(TIMEOUT_SECONDS * 1000),
+      signal: AbortSignal.timeout(60_000),
     });
   } catch (error) {
-    // A timeout or connection failure must be loud: it is the difference between "no jobs
-    // today" and "the sweep never ran", which otherwise look identical in the log.
     log(`FAILED to reach the app at ${base}: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
   }
 
-  const text = await response.text();
-  let body = null;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    /* non-JSON error body */
-  }
-
-  const seconds = Math.round((Date.now() - started) / 1000);
-
-  if (!response.ok) {
-    log(`app returned HTTP ${response.status} after ${seconds}s: ${text.slice(0, 500)}`);
+  if (!started.ok) {
+    const body = await started.text();
+    log(`could not start the sweep (HTTP ${started.status}): ${body.slice(0, 400)}`);
     process.exit(1);
   }
+  log("sweep started; waiting for it to finish");
 
-  const count = body?.count ?? 0;
-  const notification = body?.notification ?? {};
-  log(
-    `done in ${seconds}s — ${count} listing(s) after dedupe; ` +
-      `notification: ${notification.sent ? `sent via ${notification.via} to ${notification.target ?? "target"}` : `not sent (${notification.error ?? "nothing above the threshold"})`}`
-  );
+  const deadline = Date.now() + TIMEOUT_SECONDS * 1000;
+  let run = null;
 
-  if (notification?.attempted && !notification?.sent) {
-    // The scrape worked but the alert did not. Exit non-zero so it is visible rather than
-    // looking like a quiet day.
-    log(`notification failed: ${notification.error ?? "unknown reason"}`);
-    process.exit(2);
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 15_000));
+
+    let status;
+    try {
+      status = await fetch(`${base}/api/scrape/scheduled`, {
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (error) {
+      // A transient blip while polling is not a failed sweep; the server keeps working.
+      log(`status check failed (will keep waiting): ${error instanceof Error ? error.message : error}`);
+      continue;
+    }
+    if (!status.ok) {
+      log(`status check returned HTTP ${status.status}; will keep waiting`);
+      continue;
+    }
+
+    const body = await status.json().catch(() => null);
+    run = body?.run ?? null;
+    if (!run) {
+      log("no run reported yet; still waiting");
+      continue;
+    }
+
+    if (run.status === "running") {
+      log(`still running (${Math.round((Date.now() - Date.parse(run.startedAt)) / 1000)}s)`);
+      continue;
+    }
+
+    if (run.status === "failed") {
+      log(`sweep FAILED: ${run.error ?? "unknown error"}`);
+      process.exit(1);
+    }
+
+    const n = run.notification ?? {};
+    log(
+      `done — ${run.count} listing(s) after dedupe; ` +
+        (n.attempted
+          ? n.sent
+            ? `alert sent via ${n.via}${n.target ? ` to ${n.target}` : ""} (${n.highScoringCount} above threshold)`
+            : `alert NOT sent: ${n.error ?? "unknown reason"}`
+          : `no alert (${n.highScoringCount ?? 0} listings above the threshold)`)
+    );
+
+    if (n.attempted && !n.sent) process.exit(2);
+    return;
   }
+
+  log(`gave up waiting after ${TIMEOUT_SECONDS}s (the run may still be going)`);
+  process.exit(3);
 }
 
 main().catch((error) => {

@@ -1,3 +1,22 @@
+## 2026-10-31 — Long-running endpoints return a run id, never a result
+
+**Decision.** `/api/scrape/scheduled` starts a background run and returns `202 {runId}`
+immediately; the caller polls `GET` for the outcome. It does not do the work inline.
+
+**Why.** The endpoint scraped *and* ranked before responding. A real run is ~30s of scraping
+followed by several minutes of ranking, which is longer than the **300-second headers timeout
+HTTP clients enforce by default** — and undici's headers timeout cannot be raised from the
+caller (an `AbortSignal` does not override it). So a genuine sweep could never answer in time.
+
+**The symptom was actively misleading.** The daily log said `FAILED to reach the app ... fetch
+failed` while the server carried on and completed the work: 253 new listings, all ranked. A
+successful sweep looked exactly like an outage. The tell was the timing — failure at **301
+seconds** after a 05:44:34 start — plus `scrape_results` having grown 233 → 486 anyway.
+
+**Consequence.** The same pattern now applies to every long job in this app: the ranking
+backfill, the resume batch, and the scheduled sweep all return a run id and are polled. Nothing
+that takes minutes should be tied to the lifetime of an HTTP request.
+
 ## 2026-10-31 — The daily sweep, gateway notifications, and a venv that a brew upgrade broke
 
 **Decision.** A daily LaunchAgent drives the scheduled scrape, and notifications go out
